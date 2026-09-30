@@ -1,11 +1,11 @@
 const express = require('express');
 
-const AgentRoutes = require('../profile/routes');
+const RiderRoutes = require('../profile/routes');
 const RideRoute = require('../ride/routes');
 
 
 const router = express.Router();
-router.use(AgentRoutes);
+router.use(RiderRoutes);
 router.use('/ride',RideRoute);
 
 

@@ -7,13 +7,9 @@ function validateToken(req, res, next) {
     const loginIndex = req.url.indexOf("login");
     if (
         req.url.includes('login') ||
-        req.url.includes('train/redirect-to-irctc')
-        ||
-        req.url.includes('train/secure-booking') 
-        ||
-        req.url.includes('flight/cancel-view')
-        ||
-        req.url.includes('sso/validate')
+        req.url.includes('send-otp') ||
+        req.url.includes('verify-otp') ||
+        req.url.includes('resend-otp')
     ) {
         return next();
     }

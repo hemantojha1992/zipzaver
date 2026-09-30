@@ -23,10 +23,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(corsObj);
 
-const AgentTokenValidate = require('../rider/middleware/validateMiddleware')
-const AgentRoutes = require('../rider/routes');
+const RiderTokenValidate = require('../rider/middleware/validateMiddleware')
+const RiderRoutes = require('../rider/routes');
 //agent route
-app.use('/agent',AgentTokenValidate, AgentRoutes);
+app.use('/rider',RiderTokenValidate, RiderRoutes);
 
 
 app.get('/', (req, res) => {

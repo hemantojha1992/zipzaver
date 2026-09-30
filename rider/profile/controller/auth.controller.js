@@ -104,30 +104,52 @@ class AuthController {
         }
     }
 
-    async getAgentbalance(req, res) {
-        let result = {};
+    async sendOtp(req, res) {
         try {
-            const getdata = await AuthModel.getAgentbalance(req?.user?.user_id);
-            if (getdata && getdata.length == 0) {
-                result.status = 0;
-                result.errors = [
-                    CustomMessages.somethingWrong(),
-                ];
-                result.message = "";
-                res.status(200).json(result);
-            }
-            else {
-                result.status = 1;
-                result.data = getdata;
-                result.message = CustomMessages.successResponse();
-                res.json(result).status(200);
-            }
-        } catch (error) {
-            result.status = 0;
-            result.message = CustomMessages.somethingWrong();
-            res.json(result).status(500);
-        }
+            const { mobile } = req.body;
+            const result = await AuthService.sendOtp(mobile);
+            return res.status(result.status === 1 ? 200 : 400).json(result);
 
+        } catch (error) {
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
     }
+
+    async verifyOtp(req, res) {
+        try {
+            const { mobile, otp } = req.body;
+            const result = await AuthService.verifyOtp(mobile, otp);
+            return res.status(result.status === 1 ? 200 : 400).json(result);
+        } catch (error) {
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
+    async resendOtp(req, res) {
+        try {
+            const { mobile } = req.body;
+
+            const result = await AuthService.resendOtp(mobile);
+
+            return res.status(result.status === 1 ? 200 : 400).json(result);
+
+        } catch (error) {
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
+
 }
 module.exports = new AuthController(); 

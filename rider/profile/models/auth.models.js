@@ -33,15 +33,287 @@ class AuthModel {
             throw new Error('Failed to update user token');
         }
     }
-    async getAgentbalance(userId) {
-        try {
-            const sql = "select balance as wallet_balance, due_amount, credit_limit, credit_expiry_date from b2b_user_details where  user_oid =" + userId;
-            const result = await dbPool.query(sql);
-            return result[0];
-        }
-        catch (error) {
-            return  error;
-        }
+
+    //----------------------------
+
+     async getUserByMobile(mobile) {
+
+        const sql = `
+            SELECT
+                id,
+                user_type,
+                name,
+                mobile,
+                email,
+                password_hash,
+                profile_image,
+                status,
+                last_login_at,
+                deleted_at,
+                created_at,
+                updated_at
+            FROM users
+            WHERE mobile = ?
+            AND deleted_at IS NULL
+            LIMIT 1
+        `;
+
+        const [rows] = await dbPool.execute(sql, [mobile]);
+
+        return rows;
     }
+    /**
+     * Expire previous pending OTPs
+     */
+    async expirePreviousOtps(mobile, otpType) {
+
+        const sql = `
+            UPDATE otps
+            SET status = 'EXPIRED'
+            WHERE mobile = ?
+              AND otp_type = ?
+              AND status = 'PENDING'
+        `;
+
+        const [result] = await dbPool.execute(sql, [
+            mobile,
+            otpType
+        ]);
+
+        return result;
+    }
+
+
+    /**
+     * Create OTP
+     */
+    async createOtp(data) {
+
+        const sql = `
+            INSERT INTO otps
+            (
+                user_id,
+                order_id,
+                mobile,
+                otp_type,
+                otp_hash,
+                attempts,
+                max_attempts,
+                expires_at,
+                verified_at,
+                status,
+                created_at
+            )
+            VALUES
+            (
+                ?,
+                NULL,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                ?,
+                NULL,
+                'PENDING',
+                NOW()
+            )
+        `;
+
+        const [result] = await dbPool.execute(sql, [
+            data.user_id,
+            data.mobile,
+            data.otp_type,
+            data.otp_hash,
+            data.attempts,
+            data.max_attempts,
+            data.expires_at
+        ]);
+
+        return result;
+    }
+
+
+    /**
+     * Get latest pending OTP
+     */
+    async getLatestPendingOtp(mobile, otpType) {
+
+        const sql = `
+            SELECT
+                id,
+                user_id,
+                mobile,
+                otp_type,
+                otp_hash,
+                attempts,
+                max_attempts,
+                expires_at,
+                verified_at,
+                status,
+                created_at
+            FROM otps
+            WHERE mobile = ?
+              AND otp_type = ?
+              AND status = 'PENDING'
+            ORDER BY id DESC
+            LIMIT 1
+        `;
+
+        const [rows] = await dbPool.execute(sql, [
+            mobile,
+            otpType
+        ]);
+
+        return rows.length > 0 ? rows[0] : null;
+    }
+
+
+    /**
+     * Increment wrong OTP attempts
+     */
+    async incrementOtpAttempt(id) {
+
+        const sql = `
+            UPDATE otps
+            SET attempts = attempts + 1
+            WHERE id = ?
+              AND status = 'PENDING'
+        `;
+
+        const [result] = await dbPool.execute(sql, [id]);
+
+        return result;
+    }
+
+
+    /**
+     * Mark OTP blocked
+     */
+    async markOtpBlocked(id) {
+
+        const sql = `
+            UPDATE otps
+            SET status = 'BLOCKED'
+            WHERE id = ?
+        `;
+
+        const [result] = await dbPool.execute(sql, [id]);
+
+        return result;
+    }
+
+
+    /**
+     * Mark OTP expired
+     */
+    async markOtpExpired(id) {
+
+        const sql = `
+            UPDATE otps
+            SET status = 'EXPIRED'
+            WHERE id = ?
+        `;
+
+        const [result] = await dbPool.execute(sql, [id]);
+
+        return result;
+    }
+
+
+    /**
+     * Mark OTP verified
+     */
+    async markOtpVerified(id) {
+
+        const sql = `
+            UPDATE otps
+            SET
+                status = 'VERIFIED',
+                verified_at = NOW()
+            WHERE id = ?
+              AND status = 'PENDING'
+        `;
+
+        const [result] = await dbPool.execute(sql, [id]);
+
+        return result;
+    }
+
+
+    /**
+     * Update last login
+     */
+    async updateLastLogin(userId) {
+
+        const sql = `
+            UPDATE users
+            SET last_login_at = NOW()
+            WHERE id = ?
+        `;
+
+        const [result] = await dbPool.execute(sql, [userId]);
+
+        return result;
+    }
+
+    async createUser(data) {
+
+        const sql = `
+            INSERT INTO users
+            (
+                user_type,
+                mobile,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES
+            (
+                ?,
+                ?,
+                ?,
+                NOW(),
+                NOW()
+            )
+        `;
+
+        const [result] = await dbPool.execute(sql, [
+            data.user_type,
+            data.mobile,
+            data.status
+        ]);
+
+        return result;
+    }
+    async getUserById(userId) {
+
+        const sql = `
+            SELECT
+                id,
+                user_type,
+                name,
+                mobile,
+                email,
+                password_hash,
+                profile_image,
+                status,
+                last_login_at,
+                deleted_at,
+                created_at,
+                updated_at
+            FROM users
+            WHERE id = ?
+            AND deleted_at IS NULL
+            LIMIT 1
+        `;
+
+        const [rows] = await dbPool.execute(sql, [userId]);
+
+        return rows;
+    }
+
+
+   
 }
 module.exports = new AuthModel();
