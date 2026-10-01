@@ -89,193 +89,111 @@ class AuthService {
      * Hash OTP before storing
      */
     hashOtp(otp) {
-        return crypto
-            .createHash('sha256')
-            .update(otp)
-            .digest('hex');
+        return crypto.createHash('sha256').update(otp).digest('hex');
     }
-
     /**
      * Send OTP
      */
    async sendOtp(mobile) {
-
-    try {
-
-        // -----------------------------------
-        // 1. Validate mobile
-        // -----------------------------------
-
-        if (!mobile) {
-            return {
-                status: 0,
-                message: 'Mobile number is required'
-            };
-        }
-
-        mobile = mobile.toString().trim();
-
-        if (!/^[6-9]\d{9}$/.test(mobile)) {
-            return {
-                status: 0,
-                message: 'Please enter a valid mobile number'
-            };
-        }
-
-
-        // -----------------------------------
-        // 2. Find user
-        // -----------------------------------
-
-        let users = await AuthModel.getUserByMobile(mobile);
-
-        let user;
-
-
-        // -----------------------------------
-        // 3. User does not exist
-        // -----------------------------------
-
-        if (!Array.isArray(users) || users.length === 0) {
-
-            // Create new user
-            const userResult = await AuthModel.createUser({
-                user_type: 2,
+        try {
+            // -----------------------------------
+            // 1. Validate mobile
+            // -----------------------------------
+            if (!mobile) {
+                return {status: 0,message: 'Mobile number is required'};
+            }
+            mobile = mobile.toString().trim();
+            if (!/^[6-9]\d{9}$/.test(mobile)) {
+                return {status: 0,message: 'Please enter a valid mobile number'};
+            }
+            // -----------------------------------
+            // 2. Find user
+            // -----------------------------------
+            let users = await AuthModel.getUserByMobile(mobile);
+            let user;
+            // -----------------------------------
+            // 3. User does not exist
+            // -----------------------------------
+            if (!Array.isArray(users) || users.length === 0) {
+                // Create new user
+                const userResult = await AuthModel.createUser({user_type: 2,mobile: mobile,status: 1});
+                if (!userResult || !userResult.insertId) {
+                    return {status: 0,message: 'Unable to create user'};
+                }
+                // Get newly created user
+                const newUsers = await AuthModel.getUserById(userResult.insertId);
+                if (!Array.isArray(newUsers) || newUsers.length === 0) {
+                    return {status: 0,message: 'Unable to create user'};
+                }
+                user = newUsers[0];
+            } else {
+                // Existing user
+                user = users[0];
+            }
+            // -----------------------------------
+            // 4. Check account status
+            // -----------------------------------
+            if (user.status === 0) {
+                return {status: 0,message: 'Your account is inactive'};
+            }
+            if (user.status === 2) {
+                return {status: 0,message: 'Your account is blocked'};
+            }
+            // -----------------------------------
+            // 5. Generate OTP
+            // -----------------------------------
+            const otp = this.generateOtp();
+            const otpHash = this.hashOtp(otp);
+            // -----------------------------------
+            // 6. OTP expiry
+            // -----------------------------------
+            const expiresAt = new Date(Date.now() +OTP_EXPIRY_MINUTES * 60 * 1000 );
+            // -----------------------------------
+            // 7. Expire previous OTP
+            // -----------------------------------
+            await AuthModel.expirePreviousOtps(mobile,'LOGIN' );
+            // -----------------------------------
+            // 8. Create new OTP
+            // -----------------------------------
+            await AuthModel.createOtp({
+                user_id: user.id,
                 mobile: mobile,
-                status: 1
+                otp_type: 'LOGIN',
+                otp_hash: otpHash,
+                attempts: 0,
+                max_attempts: MAX_OTP_ATTEMPTS,
+                expires_at: expiresAt
             });
-
-            if (!userResult || !userResult.insertId) {
-                return {
-                    status: 0,
-                    message: 'Unable to create user'
-                };
-            }
-
-
-            // Get newly created user
-            const newUsers = await AuthModel.getUserById(
-                userResult.insertId
+            // -----------------------------------
+            // 9. Send SMS
+            // -----------------------------------
+            /*
+            await SmsService.sendOtp(
+                mobile,
+                otp
             );
-
-            if (!Array.isArray(newUsers) || newUsers.length === 0) {
-                return {
-                    status: 0,
-                    message: 'Unable to create user'
-                };
-            }
-
-            user = newUsers[0];
-
-        } else {
-
-            // Existing user
-            user = users[0];
-        }
+            */
+            // Development only
+            console.log(`OTP for ${mobile}: ${otp}`);
+            // -----------------------------------
+            // 10. Response
+            // -----------------------------------
+            return {
+                status: 1,
+                message: 'OTP sent successfully',
+                otp: otp, // Remove this in production
+            };
 
 
-        // -----------------------------------
-        // 4. Check account status
-        // -----------------------------------
-
-        if (user.status === 0) {
+        } catch (error) {
+            console.error('sendOtp error:', error);
             return {
                 status: 0,
-                message: 'Your account is inactive'
+                message: 'Unable to send OTP',
+                details: error.message || 'Unknown error'
             };
         }
-
-        if (user.status === 2) {
-            return {
-                status: 0,
-                message: 'Your account is blocked'
-            };
-        }
-
-
-        // -----------------------------------
-        // 5. Generate OTP
-        // -----------------------------------
-
-        const otp = this.generateOtp();
-
-        const otpHash = this.hashOtp(otp);
-
-
-        // -----------------------------------
-        // 6. OTP expiry
-        // -----------------------------------
-
-        const expiresAt = new Date(
-            Date.now() +
-            OTP_EXPIRY_MINUTES * 60 * 1000
-        );
-
-
-        // -----------------------------------
-        // 7. Expire previous OTP
-        // -----------------------------------
-
-        await AuthModel.expirePreviousOtps(
-            mobile,
-            'LOGIN'
-        );
-
-
-        // -----------------------------------
-        // 8. Create new OTP
-        // -----------------------------------
-
-        await AuthModel.createOtp({
-            user_id: user.id,
-            mobile: mobile,
-            otp_type: 'LOGIN',
-            otp_hash: otpHash,
-            attempts: 0,
-            max_attempts: MAX_OTP_ATTEMPTS,
-            expires_at: expiresAt
-        });
-
-
-        // -----------------------------------
-        // 9. Send SMS
-        // -----------------------------------
-
-        /*
-        await SmsService.sendOtp(
-            mobile,
-            otp
-        );
-        */
-
-
-        // Development only
-        console.log(`OTP for ${mobile}: ${otp}`);
-
-
-        // -----------------------------------
-        // 10. Response
-        // -----------------------------------
-
-        return {
-            status: 1,
-            message: 'OTP sent successfully'
-        };
-
-
-    } catch (error) {
-
-        console.error('sendOtp error:', error);
-
-        return {
-            status: 0,
-            message: 'Unable to send OTP',
-            details: error.message || 'Unknown error'
-        };
     }
-}
-
-
     /**
      * Verify OTP and Login
      */

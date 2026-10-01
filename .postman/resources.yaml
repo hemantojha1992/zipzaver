@@ -1,8 +1,0 @@
-# Use this workspace to collaborate
-workspace:
-  id: ""
-
-localResources:
-  specs:
-    - ../gprc/flight.proto
-    - ../gprc/multi.proto
