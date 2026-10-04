@@ -106,8 +106,8 @@ class AuthController {
 
     async sendOtp(req, res) {
         try {
-            const { mobile } = req.body;
-            const result = await AuthService.sendOtp(mobile);
+            const { mobile ,user_type} = req.body;
+            const result = await AuthService.sendOtp(mobile, user_type);
             return res.status(result.status === 1 ? 200 : 400).json(result);
 
         } catch (error) {
@@ -121,8 +121,9 @@ class AuthController {
 
     async verifyOtp(req, res) {
         try {
-            const { mobile, otp } = req.body;
-            const result = await AuthService.verifyOtp(mobile, otp);
+            const { mobile, otp, device_id, device_type, fcm_token } = req.body; 
+            const device = { device_id, device_type, fcm_token };
+            const result = await AuthService.verifyOtp(mobile, otp,device);
             return res.status(result.status === 1 ? 200 : 400).json(result);
         } catch (error) {
             return res.status(500).json({
@@ -149,6 +150,95 @@ class AuthController {
             });
         }
     }
+
+    async updateProfile(req, res) {
+        try {
+
+            // -----------------------------------
+            // 1. Check authentication
+            // -----------------------------------
+            if (!req.user || !req.user.id) {
+                return res.status(401).json({
+                    status: 0,
+                    message: 'Unauthorized'
+                });
+            }
+
+            // -----------------------------------
+            // 2. Get user data from JWT
+            // -----------------------------------
+            const userId = req.user.id;
+            const userType = req.user.user_type;
+
+            // -----------------------------------
+            // 3. Get request body
+            // -----------------------------------
+            const {
+                first_name,
+                last_name,
+                email,
+                aadhaar_number
+            } = req.body;
+
+            // -----------------------------------
+            // 4. Get uploaded files
+            // -----------------------------------
+            const files = req.files || {};
+
+            const profileImage =
+                files.profile_image
+                    ? files.profile_image[0]
+                    : null;
+
+            const aadhaarFront =
+                files.aadhaar_front
+                    ? files.aadhaar_front[0]
+                    : null;
+
+            const aadhaarBack =
+                files.aadhaar_back
+                    ? files.aadhaar_back[0]
+                    : null;
+
+            // -----------------------------------
+            // 5. Call service
+            // -----------------------------------
+            const result = await AuthService.updateProfile(
+                userId,
+                userType,
+                {
+                    first_name,
+                    last_name,
+                    email,
+                    aadhaar_number
+                },
+                {
+                    profileImage,
+                    aadhaarFront,
+                    aadhaarBack
+                }
+            );
+
+            return res.status(
+                result.status === 1 ? 200 : 400
+            ).json(result);
+
+        } catch (error) {
+
+            console.error(
+                'updateProfile controller error:',
+                error
+            );
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
+    
 
 
 }
