@@ -216,7 +216,7 @@ class AuthModel {
     }
     /**
      * Mark OTP verified
-     */
+     */ 
     async markOtpVerified(id) {
         const sql = `
             UPDATE otps
