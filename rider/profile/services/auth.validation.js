@@ -83,55 +83,36 @@ const verifyOtpSchema = Joi.object({
         .optional(),
 });
 
+
 const updateProfileSchema = Joi.object({
-    first_name: Joi.string()
-        .trim()
-        .min(2)
-        .max(100)
-        .required()
-        .messages({
-            'string.base': 'First name must be a string',
-            'string.empty': 'First name is required',
-            'string.min': 'First name must be at least 2 characters',
-            'string.max': 'First name cannot exceed 100 characters',
-            'any.required': 'First name is required'
-        }),
+    // Personal details - optional
+    first_name: Joi.string().trim().min(2).max(150).optional(),
+    last_name: Joi.string().trim().min(1).max(255).optional(),
+    email: Joi.string().trim().lowercase().email().max(150).allow('', null).optional(),
 
-    last_name: Joi.string()
-        .trim()
-        .min(1)
-        .max(100)
-        .required()
-        .messages({
-            'string.base': 'Last name must be a string',
-            'string.empty': 'Last name is required',
-            'string.min': 'Last name is required',
-            'string.max': 'Last name cannot exceed 100 characters',
-            'any.required': 'Last name is required'
-        }),
-
-    email: Joi.string()
-        .trim()
-        .lowercase()
-        .email()
-        .optional()
-        .allow('', null)
-        .messages({
-            'string.base': 'Email must be a string',
-            'string.email': 'Please enter a valid email address'
-        }),
-
+    // Other documents - optional
     aadhaar_number: Joi.string()
-        .trim()
-        .pattern(/^\d{12}$/)
-        .required()
-        .messages({
-            'string.base': 'Aadhaar number must be a string',
-            'string.empty': 'Aadhaar number is required',
-            'string.pattern.base': 'Please enter a valid 12 digit Aadhaar number',
-            'any.required': 'Aadhaar number is required'
-        })
-});
+    .trim()
+    .pattern(/^\d{12}$/)
+    .allow('', null)
+    .optional(),
+    aadhaar_front: Joi.any().optional(),
+    aadhaar_back: Joi.any().optional(),
+    pan: Joi.string().trim().max(255).allow('').optional(),
+
+    // DL details
+    dl_number: Joi.string().trim().max(255).required(),
+
+    // Vehicle details - optional
+    vehicle_type: Joi.string().trim().max(50).optional(),
+    vehicle_number: Joi.string().trim().max(20).optional(),
+    brand: Joi.string().trim().max(100).optional(),
+    model: Joi.string().trim().max(100).optional(),
+    color: Joi.string().trim().max(50).allow('').optional(),
+    fuel_type: Joi.string().trim().max(30).allow('').optional(),
+
+    // File fields are uploaded through Multer
+}).unknown(false);
 
 
 

@@ -42,6 +42,7 @@
     "module-alias": "^2.2.3",
     "moment": "^2.29.4",
     "moment-timezone": "^0.6.0",
+    "multer": "^2.4.0",
     "mysql2": "^3.6.1",
     "nodemailer": "^7.0.10",
     "pdfkit": "^0.14.0",

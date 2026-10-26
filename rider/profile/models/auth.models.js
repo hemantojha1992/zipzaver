@@ -340,89 +340,7 @@ class AuthModel {
 
     return rows;
     }
-    async updateUser(userId, data) {
-        try {
-
-            const fields = [];
-            const values = [];
-
-            if (data.first_name !== undefined) {
-
-                fields.push(
-                    'first_name = ?'
-                );
-
-                values.push(
-                    data.first_name
-                );
-            }
-
-            if (data.last_name !== undefined) {
-
-                fields.push(
-                    'last_name = ?'
-                );
-
-                values.push(
-                    data.last_name
-                );
-            }
-
-            if (data.email !== undefined) {
-
-                fields.push(
-                    'email = ?'
-                );
-
-                values.push(
-                    data.email
-                );
-            }
-
-            if (data.profile_image !== undefined) {
-
-                fields.push(
-                    'profile_image = ?'
-                );
-
-                values.push(
-                    data.profile_image
-                );
-            }
-
-            if (fields.length === 0) {
-                return false;
-            }
-
-            fields.push(
-                'updated_at = NOW()'
-            );
-
-            values.push(userId);
-
-            const [result] = await db.query(
-                `
-                UPDATE users
-                SET ${fields.join(', ')}
-                WHERE id = ?
-                AND deleted_at IS NULL
-                `,
-                values
-            );
-
-            return result;
-
-        } catch (error) {
-
-            console.error(
-                'updateUser error:',
-                error
-            );
-
-            throw error;
-        }
-    }
-
+    
     async getUserByEmail(email) {
 
         const [rows] = await db.query(
@@ -440,107 +358,7 @@ class AuthModel {
 
         return rows;
     }
-    async getUserDocument(userId,documentType) {
-        const [rows] = await db.query(
-            `
-            SELECT
-                id,
-                user_id,
-                vehicle_id,
-                document_type,
-                document_number,
-                document_front,
-                document_back,
-                verification_status,
-                rejection_reason
-            FROM documents
-            WHERE user_id = ?
-            AND vehicle_id IS NULL
-            AND document_type = ?
-            AND deleted_at IS NULL
-            LIMIT 1
-            `,
-            [
-                userId,
-                documentType
-            ]
-        );
-
-        return rows;
-    }
-    async createUserDocument(data) {
-
-        const [result] = await db.query(
-            `
-            INSERT INTO documents
-            (
-                user_id,
-                vehicle_id,
-                document_type,
-                document_number,
-                document_front,
-                document_back,
-                verification_status,
-                rejection_reason,
-                created_at,
-                updated_at
-            )
-            VALUES
-            (
-                ?,
-                NULL,
-                ?,
-                ?,
-                ?,
-                ?,
-                ?,
-                NULL,
-                NOW(),
-                NOW()
-            )
-            `,
-            [
-                data.user_id,
-                data.document_type,
-                data.document_number,
-                data.document_front || null,
-                data.document_back || null,
-                data.verification_status || 0
-            ]
-        );
-
-        return result;
-    }
-    async updateUserDocument(userId,documentType,data) {
-
-        const [result] = await db.query(
-            `
-            UPDATE documents
-            SET
-                document_number = ?,
-                document_front = ?,
-                document_back = ?,
-                verification_status = ?,
-                rejection_reason = ?,
-                updated_at = NOW()
-            WHERE user_id = ?
-            AND vehicle_id IS NULL
-            AND document_type = ?
-            AND deleted_at IS NULL
-            `,
-            [
-                data.document_number,
-                data.document_front || null,
-                data.document_back || null,
-                data.verification_status,
-                data.rejection_reason || null,
-                userId,
-                documentType
-            ]
-        );
-
-        return result;
-    }
+    
     async getDriverProfile(userId) {
 
         const [rows] = await db.query(
@@ -614,9 +432,148 @@ class AuthModel {
         return result;
     }
 
+    
+static async updateUser(userId, data) {
+    const allowedColumns = [
+        'first_name',
+        'last_name',
+        'email',
+        'profile_image',
+        'aadhar_number',
+        'aadhar_front',
+        'aadhar_back',
+        'dl_number',
+        'dl_front',
+        'dl_back',
+        'pan',
+        'pan_image'
+    ];
 
+    const fields = Object.keys(data).filter(
+        (key) => allowedColumns.includes(key)
+    );
 
+    if (fields.length === 0) {
+        return { affectedRows: 0 };
+    }
 
+    const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
+    const values = fields.map((field) => data[field]);
+
+    const sql = `
+        UPDATE users
+        SET ${setClause}, updated_at = NOW()
+        WHERE id = ?
+          AND user_type = 3
+          AND deleted_at IS NULL
+    `;
+
+    const [result] = await dbPool.execute(sql, [
+        ...values,
+        userId
+    ]);
+
+    return result;
+}
+
+static async getVehicleByUserId(userId) {
+    const sql = `
+        SELECT *
+        FROM vehicles
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+        ORDER BY is_primary DESC, id DESC
+        LIMIT 1
+    `;
+
+    const [rows] = await dbPool.execute(sql, [userId]);
+
+    return rows[0] || null;
+}
+static async createVehicle(data) {
+    const sql = `
+        INSERT INTO vehicles (
+            user_id,
+            vehicle_type,
+            vehicle_number,
+            brand,
+            model,
+            color,
+            fuel_type,
+            vehicle_photo,
+            rc_front,
+            rc_back,
+            is_primary,
+            status,
+            rejection_reason,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    `;
+
+    const values = [
+        data.user_id,
+        data.vehicle_type ?? null,
+        data.vehicle_number ?? null,
+        data.brand ?? null,
+        data.model ?? null,
+        data.color ?? null,
+        data.fuel_type ?? null,
+        data.vehicle_photo ?? null,
+        data.rc_front ?? null,
+        data.rc_back ?? null,
+        data.is_primary ?? 1,
+        data.status ?? 0,
+        data.rejection_reason ?? null
+    ];
+
+    const [result] = await dbPool.execute(sql, values);
+
+    return {
+        id: result.insertId,
+        user_id: data.user_id
+    };
+}
+static async updateVehicle(userId, data) {
+    const allowedColumns = [
+        'vehicle_type',
+        'vehicle_number',
+        'brand',
+        'model',
+        'color',
+        'fuel_type',
+        'vehicle_photo',
+        'rc_front',
+        'rc_back',
+        'status',
+        'rejection_reason'
+    ];
+
+    const fields = Object.keys(data).filter(
+        (key) => allowedColumns.includes(key)
+    );
+
+    if (fields.length === 0) {
+        return { affectedRows: 0 };
+    }
+
+    const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
+    const values = fields.map((field) => data[field]);
+
+    const sql = `
+        UPDATE vehicles
+        SET ${setClause}, updated_at = NOW()
+        WHERE user_id = ?
+          AND deleted_at IS NULL
+    `;
+
+    const [result] = await dbPool.execute(sql, [
+        ...values,
+        userId
+    ]);
+
+    return result;
+}
 
 
 
