@@ -32,6 +32,43 @@ class RideController {
             });
         }
     }
+
+    async getNearbyDriverByLatLong(req, res) {
+        try {
+
+            const result = await RideService.getNearbyDriverByLatLong(
+                req.body
+            );
+
+            return res
+                .status(result.httpStatus || 200)
+                .json(result);
+
+        } catch (error) {
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+
+        }
+    }
+
+    async updateLocation(req, res) {
+        try {
+            const { latitude, longitude } = req.body;
+            const result = await RideService.updateDriverLocation(req.user.user_id,latitude,longitude);
+            return res.status(result.httpStatus || 200).json(result);
+        } catch (error) {
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
 }
 
 module.exports = new RideController(); 

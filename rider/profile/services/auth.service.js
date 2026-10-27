@@ -174,16 +174,8 @@ class AuthService {
                 user = newUsers[0];
 
             } else {
-
-                // -----------------------------------
-                // Existing user
-                // -----------------------------------
                 user = users[0];
             }
-
-            // -----------------------------------
-            // 5. Check account status
-            // -----------------------------------
             if (user.status === 0) {
                 return {
                     status: 0,
@@ -422,9 +414,6 @@ class AuthService {
                 privileges: privilegesArray
             };
 
-            if (user.uuid) {
-                tokenPayload.uuid = user.uuid;
-            }
 
             // Generate JWT
             const token = jwt.sign(
@@ -467,7 +456,7 @@ class AuthService {
 
         return await this.sendOtp(mobile);
     }
-    static async updateProfile(userId, userType, data, files = {}) {
+    async updateProfile(userId, userType, data, files = {}) {
         try {
             if (!userId) {
                 return {
@@ -476,7 +465,7 @@ class AuthService {
                     message: 'Unauthorized. Please login again.'
                 };
             }
-
+            
             if (Number(userType) !== 3) {
                 return {
                     status: 0,
@@ -686,6 +675,16 @@ class AuthService {
             console.error('AuthService.updateProfile error:', error);
             throw error;
         }
+    }
+
+    async getSettings() {
+        const settings = await AuthModel.getSettings();
+
+        return {
+            status: 1,
+            message: 'Settings fetched successfully',
+            data: settings
+        };
     }
 
 }

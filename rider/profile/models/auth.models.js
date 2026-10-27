@@ -314,7 +314,7 @@ class AuthModel {
     }
     async getUserByIdNew(userId) {
 
-    const [rows] = await db.query(
+    const [rows] = await dbPool.query(
         `
         SELECT
             id,
@@ -343,7 +343,7 @@ class AuthModel {
     
     async getUserByEmail(email) {
 
-        const [rows] = await db.query(
+        const [rows] = await dbPool.query(
             `
             SELECT
                 id,
@@ -361,7 +361,7 @@ class AuthModel {
     
     async getDriverProfile(userId) {
 
-        const [rows] = await db.query(
+        const [rows] = await dbPool.query(
             `
             SELECT
                 id,
@@ -385,7 +385,7 @@ class AuthModel {
 
     async createDriverProfile(data) {
 
-        const [result] = await db.query(
+        const [result] = await dbPool.query(
             `
             INSERT INTO driver_profiles
             (
@@ -413,7 +413,7 @@ class AuthModel {
 
     async updateDriverProfile(userId,data) {
 
-        const [result] = await db.query(
+        const [result] = await dbPool.query(
             `
             UPDATE driver_profiles
             SET
@@ -433,147 +433,179 @@ class AuthModel {
     }
 
     
-static async updateUser(userId, data) {
-    const allowedColumns = [
-        'first_name',
-        'last_name',
-        'email',
-        'profile_image',
-        'aadhar_number',
-        'aadhar_front',
-        'aadhar_back',
-        'dl_number',
-        'dl_front',
-        'dl_back',
-        'pan',
-        'pan_image'
-    ];
+    async updateUser(userId, data) {
+        const allowedColumns = [
+            'first_name',
+            'last_name',
+            'email',
+            'profile_image',
+            'aadhar_number',
+            'aadhar_front',
+            'aadhar_back',
+            'dl_number',
+            'dl_front',
+            'dl_back',
+            'pan',
+            'pan_image'
+        ];
 
-    const fields = Object.keys(data).filter(
-        (key) => allowedColumns.includes(key)
-    );
+        const fields = Object.keys(data).filter(
+            (key) => allowedColumns.includes(key)
+        );
 
-    if (fields.length === 0) {
-        return { affectedRows: 0 };
+        if (fields.length === 0) {
+            return { affectedRows: 0 };
+        }
+
+        const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
+        const values = fields.map((field) => data[field]);
+
+        const sql = `
+            UPDATE users
+            SET ${fields.length > 0 ? setClause + ', ' : ''}
+                status = 3,
+                updated_at = NOW()
+            WHERE id = ?
+            AND user_type = 3
+            AND deleted_at IS NULL
+        `;
+
+        const [result] = await dbPool.execute(sql, [
+            ...values,
+            userId
+        ]);
+
+        return result;
     }
 
-    const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
-    const values = fields.map((field) => data[field]);
+    async getVehicleByUserId(userId) {
+        const sql = `
+            SELECT *
+            FROM vehicles
+            WHERE user_id = ?
+            AND deleted_at IS NULL
+            ORDER BY is_primary DESC, id DESC
+            LIMIT 1
+        `;
 
-    const sql = `
-        UPDATE users
-        SET ${setClause}, updated_at = NOW()
-        WHERE id = ?
-          AND user_type = 3
-          AND deleted_at IS NULL
-    `;
+        const [rows] = await dbPool.execute(sql, [userId]);
 
-    const [result] = await dbPool.execute(sql, [
-        ...values,
-        userId
-    ]);
+        return rows[0] || null;
+    }
+    async createVehicle(data) {
+        const sql = `
+            INSERT INTO vehicles (
+                user_id,
+                vehicle_type,
+                vehicle_number,
+                brand,
+                model,
+                color,
+                fuel_type,
+                vehicle_photo,
+                rc_front,
+                rc_back,
+                is_primary,
+                status,
+                rejection_reason,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        `;
 
-    return result;
-}
+        const values = [
+            data.user_id,
+            data.vehicle_type ?? null,
+            data.vehicle_number ?? null,
+            data.brand ?? null,
+            data.model ?? null,
+            data.color ?? null,
+            data.fuel_type ?? null,
+            data.vehicle_photo ?? null,
+            data.rc_front ?? null,
+            data.rc_back ?? null,
+            data.is_primary ?? 1,
+            data.status ?? 0,
+            data.rejection_reason ?? null
+        ];
 
-static async getVehicleByUserId(userId) {
-    const sql = `
-        SELECT *
-        FROM vehicles
-        WHERE user_id = ?
-          AND deleted_at IS NULL
-        ORDER BY is_primary DESC, id DESC
-        LIMIT 1
-    `;
+        const [result] = await dbPool.execute(sql, values);
 
-    const [rows] = await dbPool.execute(sql, [userId]);
+        return {
+            id: result.insertId,
+            user_id: data.user_id
+        };
+    }
+    async updateVehicle(userId, data) {
+        const allowedColumns = [
+            'vehicle_type',
+            'vehicle_number',
+            'brand',
+            'model',
+            'color',
+            'fuel_type',
+            'vehicle_photo',
+            'rc_front',
+            'rc_back',
+            'status',
+            'rejection_reason'
+        ];
 
-    return rows[0] || null;
-}
-static async createVehicle(data) {
-    const sql = `
-        INSERT INTO vehicles (
-            user_id,
-            vehicle_type,
-            vehicle_number,
-            brand,
-            model,
-            color,
-            fuel_type,
-            vehicle_photo,
-            rc_front,
-            rc_back,
-            is_primary,
-            status,
-            rejection_reason,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-    `;
+        const fields = Object.keys(data).filter(
+            (key) => allowedColumns.includes(key)
+        );
 
-    const values = [
-        data.user_id,
-        data.vehicle_type ?? null,
-        data.vehicle_number ?? null,
-        data.brand ?? null,
-        data.model ?? null,
-        data.color ?? null,
-        data.fuel_type ?? null,
-        data.vehicle_photo ?? null,
-        data.rc_front ?? null,
-        data.rc_back ?? null,
-        data.is_primary ?? 1,
-        data.status ?? 0,
-        data.rejection_reason ?? null
-    ];
+        if (fields.length === 0) {
+            return { affectedRows: 0 };
+        }
 
-    const [result] = await dbPool.execute(sql, values);
+        const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
+        const values = fields.map((field) => data[field]);
 
-    return {
-        id: result.insertId,
-        user_id: data.user_id
-    };
-}
-static async updateVehicle(userId, data) {
-    const allowedColumns = [
-        'vehicle_type',
-        'vehicle_number',
-        'brand',
-        'model',
-        'color',
-        'fuel_type',
-        'vehicle_photo',
-        'rc_front',
-        'rc_back',
-        'status',
-        'rejection_reason'
-    ];
+        const sql = `
+            UPDATE vehicles
+            SET ${setClause}, updated_at = NOW()
+            WHERE user_id = ?
+            AND deleted_at IS NULL
+        `;
 
-    const fields = Object.keys(data).filter(
-        (key) => allowedColumns.includes(key)
-    );
+        const [result] = await dbPool.execute(sql, [
+            ...values,
+            userId
+        ]);
 
-    if (fields.length === 0) {
-        return { affectedRows: 0 };
+        return result;
+    }
+    async getSettings() {
+        const [rows] = await dbPool.query(
+            `SELECT setting_key, setting_value, setting_type
+            FROM settings
+            WHERE status = 1
+            ORDER BY id ASC`
+        );
+
+        const settings = {};
+
+        for (const row of rows) {
+            let value = row.setting_value;
+
+            if (row.setting_type === 'number') {
+                value = Number(value);
+            } else if (row.setting_type === 'boolean') {
+                value = value === 'true' || value === '1';
+            } else if (row.setting_type === 'json') {
+                value = JSON.parse(value);
+            }
+
+            settings[row.setting_key] = value;
+        }
+
+        return settings;
+
     }
 
-    const setClause = fields.map((field) => `\`${field}\` = ?`).join(', ');
-    const values = fields.map((field) => data[field]);
 
-    const sql = `
-        UPDATE vehicles
-        SET ${setClause}, updated_at = NOW()
-        WHERE user_id = ?
-          AND deleted_at IS NULL
-    `;
 
-    const [result] = await dbPool.execute(sql, [
-        ...values,
-        userId
-    ]);
-
-    return result;
-}
 
 
 

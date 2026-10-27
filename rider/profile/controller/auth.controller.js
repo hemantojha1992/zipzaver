@@ -161,8 +161,7 @@ class AuthController {
 
             const userId = req.user.user_id;
             const userType = req.user.user_type;
-
-            if (Number(userType) !== 2) {
+            if (Number(userType) !== 3) {
                 return res.status(403).json({
                     status: 0,
                     message: 'Only drivers can update this profile.'
@@ -258,6 +257,23 @@ class AuthController {
         } catch (error) {
             console.error('Update Profile Error:', error);
 
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
+    async getSettings(req, res) {
+        try {
+            const result = await AuthService.getSettings();
+
+            return res
+                .status(result.status === 1 ? 200 : 400)
+                .json(result);
+
+        } catch (error) {
             return res.status(500).json({
                 status: 0,
                 message: 'Something went wrong. Please try again later.',
