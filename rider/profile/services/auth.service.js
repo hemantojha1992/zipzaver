@@ -174,16 +174,8 @@ class AuthService {
                 user = newUsers[0];
 
             } else {
-
-                // -----------------------------------
-                // Existing user
-                // -----------------------------------
                 user = users[0];
             }
-
-            // -----------------------------------
-            // 5. Check account status
-            // -----------------------------------
             if (user.status === 0) {
                 return {
                     status: 0,
@@ -422,9 +414,6 @@ class AuthService {
                 privileges: privilegesArray
             };
 
-            if (user.uuid) {
-                tokenPayload.uuid = user.uuid;
-            }
 
             // Generate JWT
             const token = jwt.sign(
@@ -467,337 +456,235 @@ class AuthService {
 
         return await this.sendOtp(mobile);
     }
-
-    async updateProfile(userId,userType,data,files) {
-
+    async updateProfile(userId, userType, data, files = {}) {
         try {
-
-            // -----------------------------------
-            // 1. Validate user ID
-            // -----------------------------------
             if (!userId) {
                 return {
                     status: 0,
-                    message: 'User not found'
+                    httpStatus: 401,
+                    message: 'Unauthorized. Please login again.'
                 };
             }
-
-            // -----------------------------------
-            // 2. Validate user type
-            // -----------------------------------
-            userType = parseInt(userType, 10);
-
-            if (![2, 3].includes(userType)) {
+            
+            if (Number(userType) !== 3) {
                 return {
                     status: 0,
-                    message: 'Invalid user type'
+                    httpStatus: 403,
+                    message: 'Only drivers can update this profile.'
                 };
             }
 
-            // -----------------------------------
-            // 3. Get user
-            // -----------------------------------
-            const users =
-                await AuthModel.getUserById(userId);
-
-            if (
-                !Array.isArray(users) ||
-                users.length === 0
-            ) {
+            // DL number and all four DL/RC images are required
+            if (!data.dl_number || !String(data.dl_number).trim()) {
                 return {
                     status: 0,
-                    message: 'User not found'
+                    httpStatus: 400,
+                    message: 'Driving licence number is required.'
                 };
             }
 
-            const user = users[0];
+            const requiredFiles = [
+                ['dlFront', 'DL front image'],
+                ['dlBack', 'DL back image'],
+                ['rcFront', 'RC front image'],
+                ['rcBack', 'RC back image']
+            ];
 
-            // -----------------------------------
-            // 4. Verify user type from DB
-            // -----------------------------------
-            if (
-                Number(user.user_type) !==
-                Number(userType)
-            ) {
-                return {
-                    status: 0,
-                    message: 'Invalid user type'
-                };
-            }
-
-            // -----------------------------------
-            // 5. Check account status
-            // -----------------------------------
-            if (Number(user.status) === 0) {
-                return {
-                    status: 0,
-                    message: 'Your account is inactive'
-                };
-            }
-
-            if (Number(user.status) === 2) {
-                return {
-                    status: 0,
-                    message: 'Your account is blocked'
-                };
-            }
-
-            // -----------------------------------
-            // 6. Email duplicate check
-            // -----------------------------------
-            if (data.email) {
-
-                const existingUser =
-                    await AuthModel.getUserByEmail(
-                        data.email
-                    );
-
-                if (
-                    Array.isArray(existingUser) &&
-                    existingUser.length > 0 &&
-                    Number(existingUser[0].id) !==
-                    Number(userId)
-                ) {
+            for (const [key, label] of requiredFiles) {
+                if (!files[key]) {
                     return {
                         status: 0,
-                        message: 'Email is already registered'
+                        httpStatus: 400,
+                        message: `${label} is required.`
                     };
                 }
             }
 
-            // -----------------------------------
-            // 7. Profile image
-            // -----------------------------------
-            let profileImage = null;
+            // Fetch driver
+            const userResult = await AuthModel.getUserById(userId);
+            const user = Array.isArray(userResult)
+                ? userResult[0]
+                : userResult;
 
-            if (files && files.profileImage) {
-
-                profileImage =
-                    files.profileImage.filename ||
-                    files.profileImage.path ||
-                    null;
+            if (!user || Number(user.user_type) !== 3) {
+                return {
+                    status: 0,
+                    httpStatus: 404,
+                    message: 'Driver not found.'
+                };
             }
 
-            // -----------------------------------
-            // 8. Update users table
-            // -----------------------------------
-            const updateUserData = {
+            if (Number(user.status) !== 1) {
+                return {
+                    status: 0,
+                    httpStatus: 400,
+                    message: 'Your account is inactive or blocked.'
+                };
+            }
 
-                first_name: data.first_name,
+            // Check duplicate email only when a non-empty email is supplied
+            if (data.email !== undefined && data.email !== null &&
+                String(data.email).trim() !== '') {
 
-                last_name: data.last_name,
+                const emailResult = await AuthModel.getUserByEmail(
+                    String(data.email).trim().toLowerCase()
+                );
 
-                email: data.email || null
+                const emailUser = Array.isArray(emailResult)
+                    ? emailResult[0]
+                    : emailResult;
+
+                if (emailUser && String(emailUser.id) !== String(userId)) {
+                    return {
+                        status: 0,
+                        httpStatus: 400,
+                        message: 'Email is already registered.'
+                    };
+                }
+            }
+
+            // Only supplied fields are updated
+            const userData = {};
+
+            const userFieldMap = {
+                first_name: 'first_name',
+                last_name: 'last_name',
+                email: 'email',
+                aadhaar_number: 'aadhar_number',
+                dl_number: 'dl_number',
+                pan: 'pan'
             };
 
-            if (profileImage) {
-                updateUserData.profile_image =
-                    profileImage;
+            for (const [requestKey, dbColumn] of Object.entries(userFieldMap)) {
+                if (Object.prototype.hasOwnProperty.call(data, requestKey)) {
+                    userData[dbColumn] =
+                        requestKey === 'email' && !data[requestKey]
+                            ? null
+                            : data[requestKey];
+                }
             }
 
-            const updateUserResult =
-                await AuthModel.updateUser(
-                    userId,
-                    updateUserData
-                );
+            // Use the project's existing Multer filename/path convention
+            const getFilePath = (file) => {
+                if (!file) return undefined;
+                return file.filename || file.path;
+            };
 
-            if (!updateUserResult) {
-                return {
-                    status: 0,
-                    message: 'Unable to update profile'
-                };
+            const userFileMap = {
+                profileImage: 'profile_image',
+                aadhaarFront: 'aadhar_front',
+                aadhaarBack: 'aadhar_back',
+                dlFront: 'dl_front',
+                dlBack: 'dl_back',
+                panImage: 'pan_image'
+            };
+
+            for (const [fileKey, dbColumn] of Object.entries(userFileMap)) {
+                const path = getFilePath(files[fileKey]);
+                if (path !== undefined) {
+                    userData[dbColumn] = path;
+                }
             }
 
-            // -----------------------------------
-            // 9. Aadhaar document
-            // -----------------------------------
-
-            const existingAadhaar =
-                await AuthModel.getUserDocument(
-                    userId,
-                    'AADHAAR'
-                );
-
-            // Aadhaar front
-            let aadhaarFront = null;
-
-            if (files && files.aadhaarFront) {
-
-                aadhaarFront =
-                    files.aadhaarFront.filename ||
-                    files.aadhaarFront.path ||
-                    null;
+            // Update user only if there are fields to update
+            if (Object.keys(userData).length > 0) {
+                await AuthModel.updateUser(userId, userData);
             }
 
-            // Aadhaar back
-            let aadhaarBack = null;
+            // Prepare vehicle update; omitted optional fields remain unchanged
+            const vehicleData = {};
 
-            if (files && files.aadhaarBack) {
+            const vehicleFieldMap = {
+                vehicle_type: 'vehicle_type',
+                vehicle_number: 'vehicle_number',
+                brand: 'brand',
+                model: 'model',
+                color: 'color',
+                fuel_type: 'fuel_type'
+            };
 
-                aadhaarBack =
-                    files.aadhaarBack.filename ||
-                    files.aadhaarBack.path ||
-                    null;
+            for (const [requestKey, dbColumn] of Object.entries(vehicleFieldMap)) {
+                if (Object.prototype.hasOwnProperty.call(data, requestKey)) {
+                    vehicleData[dbColumn] = data[requestKey];
+                }
             }
 
-            if (
-                Array.isArray(existingAadhaar) &&
-                existingAadhaar.length > 0
-            ) {
+            const vehicleFileMap = {
+                vehiclePhoto: 'vehicle_photo',
+                rcFront: 'rc_front',
+                rcBack: 'rc_back'
+            };
 
-                // -----------------------------------
-                // Update existing Aadhaar
-                // -----------------------------------
+            for (const [fileKey, dbColumn] of Object.entries(vehicleFileMap)) {
+                const path = getFilePath(files[fileKey]);
+                if (path !== undefined) {
+                    vehicleData[dbColumn] = path;
+                }
+            }
 
-                const oldAadhaar =
-                    existingAadhaar[0];
+            // DL/RC verification documents are being resubmitted
+            vehicleData.status = 0;
+            vehicleData.rejection_reason = null;
 
-                await AuthModel.updateUserDocument(
-                    userId,
-                    'AADHAAR',
-                    {
-                        document_number:
-                            data.aadhaar_number,
+            const existingVehicle = await AuthModel.getVehicleByUserId(userId);
 
-                        document_front:
-                            aadhaarFront ||
-                            oldAadhaar.document_front,
-
-                        document_back:
-                            aadhaarBack ||
-                            oldAadhaar.document_back,
-
-                        verification_status: 0,
-
-                        rejection_reason: null
-                    }
-                );
-
+            if (existingVehicle) {
+                await AuthModel.updateVehicle(userId, vehicleData);
             } else {
-
-                // -----------------------------------
-                // Create new Aadhaar
-                // -----------------------------------
-
-                const documentResult =
-                    await AuthModel.createUserDocument({
-                        user_id: userId,
-
-                        document_type: 'AADHAAR',
-
-                        document_number:
-                            data.aadhaar_number,
-
-                        document_front:
-                            aadhaarFront,
-
-                        document_back:
-                            aadhaarBack,
-
-                        verification_status: 0
-                    });
-
-                if (!documentResult) {
-                    return {
-                        status: 0,
-                        message:
-                            'Unable to save Aadhaar document'
-                    };
-                }
+                // The vehicles table must allow omitted optional fields to be NULL
+                await AuthModel.createVehicle({
+                    user_id: userId,
+                    vehicle_type: vehicleData.vehicle_type ?? null,
+                    vehicle_number: vehicleData.vehicle_number ?? null,
+                    brand: vehicleData.brand ?? null,
+                    model: vehicleData.model ?? null,
+                    color: vehicleData.color ?? null,
+                    fuel_type: vehicleData.fuel_type ?? null,
+                    vehicle_photo: vehicleData.vehicle_photo ?? null,
+                    rc_front: vehicleData.rc_front,
+                    rc_back: vehicleData.rc_back,
+                    is_primary: 1,
+                    status: 0,
+                    rejection_reason: null
+                });
             }
 
-            // -----------------------------------
-            // 10. Driver profile
-            // -----------------------------------
+            const updatedUserResult = await AuthModel.getUserById(userId);
+            const updatedUser = Array.isArray(updatedUserResult)
+                ? updatedUserResult[0]
+                : updatedUserResult;
 
-            if (Number(userType) === 3) {
+            const updatedVehicle = await AuthModel.getVehicleByUserId(userId);
 
-                const driverProfile =
-                    await AuthModel.getDriverProfile(
-                        userId
-                    );
-
-                if (
-                    !Array.isArray(driverProfile) ||
-                    driverProfile.length === 0
-                ) {
-
-                    // Create driver profile
-                    await AuthModel.createDriverProfile({
-                        user_id: userId,
-                        approval_status: 0
-                    });
-
-                } else {
-
-                    // Existing driver
-                    // Again pending for verification
-                    await AuthModel.updateDriverProfile(
-                        userId,
-                        {
-                            approval_status: 0,
-                            rejection_reason: null
-                        }
-                    );
-                }
-            }
-
-            // -----------------------------------
-            // 11. Get updated user
-            // -----------------------------------
-            const updatedUsers =
-                await AuthModel.getUserById(userId);
-
-            const updatedUser =
-                updatedUsers[0];
-
-            // -----------------------------------
-            // 12. Remove sensitive data
-            // -----------------------------------
-            delete updatedUser.password;
-            delete updatedUser.deleted_at;
-
-            // -----------------------------------
-            // 13. Response
-            // -----------------------------------
-            if (Number(userType) === 3) {
-
-                return {
-                    status: 1,
-                    message:
-                        'Profile updated successfully. Your profile is pending for verification.',
-                    data: {
-                        user: updatedUser,
-                        driver: {
-                            approval_status: 0,
-                            approval_status_text: 'Pending'
-                        }
-                    }
-                };
-
+            if (updatedUser) {
+                delete updatedUser.password;
+                delete updatedUser.deleted_at;
             }
 
             return {
                 status: 1,
-                message: 'Profile updated successfully.',
+                httpStatus: 200,
+                message: 'Driver profile updated successfully. DL and RC verification is pending.',
                 data: {
-                    user: updatedUser
+                    user: updatedUser,
+                    vehicle: updatedVehicle
                 }
             };
 
         } catch (error) {
-
-            console.error(
-                'updateProfile service error:',
-                error
-            );
-
-            return {
-                status: 0,
-                message: 'Unable to update profile',
-                details: error.message || 'Unknown error'
-            };
+            console.error('AuthService.updateProfile error:', error);
+            throw error;
         }
+    }
+
+    async getSettings() {
+        const settings = await AuthModel.getSettings();
+
+        return {
+            status: 1,
+            message: 'Settings fetched successfully',
+            data: settings
+        };
     }
 
 }

@@ -150,86 +150,130 @@ class AuthController {
             });
         }
     }
-
     async updateProfile(req, res) {
         try {
-
-            // -----------------------------------
-            // 1. Check authentication
-            // -----------------------------------
-            if (!req.user || !req.user.id) {
+            if (!req.user || !req.user.user_id) {
                 return res.status(401).json({
                     status: 0,
-                    message: 'Unauthorized'
+                    message: 'Unauthorized. Please login again.'
                 });
             }
 
-            // -----------------------------------
-            // 2. Get user data from JWT
-            // -----------------------------------
-            const userId = req.user.id;
+            const userId = req.user.user_id;
             const userType = req.user.user_type;
+            if (Number(userType) !== 3) {
+                return res.status(403).json({
+                    status: 0,
+                    message: 'Only drivers can update this profile.'
+                });
+            }
 
-            // -----------------------------------
-            // 3. Get request body
-            // -----------------------------------
+            const files = req.files || {};
+
+            const getFile = (field) => files[field]?.[0] || null;
+
+            // Required DL and RC documents
+            const dlFront = getFile('dl_front');
+            const dlBack = getFile('dl_back');
+            const rcFront = getFile('rc_front');
+            const rcBack = getFile('rc_back');
+
+            if (!dlFront || !dlBack || !rcFront || !rcBack) {
+                return res.status(400).json({
+                    status: 0,
+                    message: 'DL front, DL back, RC front and RC back images are required.',
+                    required_files: [
+                        'dl_front',
+                        'dl_back',
+                        'rc_front',
+                        'rc_back'
+                    ]
+                });
+            }
+
+            // All remaining fields are optional
             const {
                 first_name,
                 last_name,
                 email,
-                aadhaar_number
+                aadhaar_number,
+                dl_number,
+                pan,
+                vehicle_type,
+                vehicle_number,
+                brand,
+                model,
+                color,
+                fuel_type
             } = req.body;
 
-            // -----------------------------------
-            // 4. Get uploaded files
-            // -----------------------------------
-            const files = req.files || {};
+            const profileData = {
+                first_name,
+                last_name,
+                email,
+                aadhaar_number,
+                dl_number,
+                pan,
+                vehicle_type,
+                vehicle_number,
+                brand,
+                model,
+                color,
+                fuel_type
+            };
 
-            const profileImage =
-                files.profile_image
-                    ? files.profile_image[0]
-                    : null;
+            // Remove undefined values so omitted fields remain unchanged
+            Object.keys(profileData).forEach((key) => {
+                if (profileData[key] === undefined) {
+                    delete profileData[key];
+                }
+            });
 
-            const aadhaarFront =
-                files.aadhaar_front
-                    ? files.aadhaar_front[0]
-                    : null;
+            const uploadedFiles = {
+                profileImage: getFile('profile_image'),
+                aadhaarFront: getFile('aadhar_front'),
+                aadhaarBack: getFile('aadhar_back'),
+                dlFront,
+                dlBack,
+                panImage: getFile('pan_image'),
+                vehiclePhoto: getFile('vehicle_photo'),
+                rcFront,
+                rcBack
+            };
 
-            const aadhaarBack =
-                files.aadhaar_back
-                    ? files.aadhaar_back[0]
-                    : null;
-
-            // -----------------------------------
-            // 5. Call service
-            // -----------------------------------
             const result = await AuthService.updateProfile(
                 userId,
                 userType,
-                {
-                    first_name,
-                    last_name,
-                    email,
-                    aadhaar_number
-                },
-                {
-                    profileImage,
-                    aadhaarFront,
-                    aadhaarBack
-                }
+                profileData,
+                uploadedFiles
             );
 
             return res.status(
-                result.status === 1 ? 200 : 400
+                result.status === 1
+                    ? 200
+                    : result.httpStatus || 400
             ).json(result);
 
         } catch (error) {
+            console.error('Update Profile Error:', error);
 
-            console.error(
-                'updateProfile controller error:',
-                error
-            );
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
 
+    async getSettings(req, res) {
+        try {
+            const result = await AuthService.getSettings();
+
+            return res
+                .status(result.status === 1 ? 200 : 400)
+                .json(result);
+
+        } catch (error) {
             return res.status(500).json({
                 status: 0,
                 message: 'Something went wrong. Please try again later.',
