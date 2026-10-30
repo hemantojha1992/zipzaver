@@ -491,7 +491,7 @@ class rideModel {
             const [drivers] = await connection.query(
                 `SELECT id
                  FROM users
-                 WHERE id = ?,
+                 WHERE id = ?
                    AND user_type = 3
                    AND status = 1
                  LIMIT 1`,
@@ -515,7 +515,7 @@ class rideModel {
             await connection.query(
                 `UPDATE users
                  SET 
-                    is_online = ?
+                    is_online = ?,
                     last_location_latitude = ?,
                     last_location_longitude = ?,
                     last_location_at = NOW(),
