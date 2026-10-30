@@ -490,7 +490,7 @@ class rideModel {
             // Verify that the authenticated user is an active driver.
             const [drivers] = await connection.query(
                 `SELECT id
-                 FROM users
+                 FROM users 
                  WHERE id = ?,
                    AND user_type = 3
                    AND status = 1
