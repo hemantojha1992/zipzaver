@@ -7,7 +7,72 @@ const { setCacheData, getCacheData } = require("../../../shared/redis/Redis");
 
 class RideController {
     
+    async acceptRideRequest(req, res) {
 
+        try {
+
+            const driverId = req.user?.user_id;
+            const { request_id } = req.body;
+
+            if (!driverId) {
+                return res.status(401).json({
+                    status: 0,
+                    message: 'Unauthorized. Please login again.'
+                });
+            }
+
+            const result = await RideService.acceptRideRequest(
+                request_id,
+                driverId
+            );
+
+            return res
+                .status(result.httpStatus || 200)
+                .json(result);
+
+        } catch (error) {
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
+
+
+    async rejectRideRequest(req, res) {
+
+        try {
+
+            const driverId = req.user?.user_id;
+            const { request_id } = req.body;
+
+            if (!driverId) {
+                return res.status(401).json({
+                    status: 0,
+                    message: 'Unauthorized. Please login again.'
+                });
+            }
+
+            const result = await RideService.rejectRideRequest(
+                request_id,
+                driverId
+            );
+
+            return res
+                .status(result.httpStatus || 200)
+                .json(result);
+
+        } catch (error) {
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
     async bookRide(req, res) {
         try {
             

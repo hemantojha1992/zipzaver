@@ -11,6 +11,8 @@ require('@envConfig');
 require('../shared/constant');
 require('../rider/constant')
 
+const RideService = require('../rider/ride/services/ride.service');
+
 // const { SessionSchema } = require('./session');
 
 const app = express();
@@ -35,6 +37,17 @@ app.get('/', (req, res) => {
 app.get('*', (req, res) => {
   res.status(404).send({ status: 0, message: "Method not supported" });
 });
+
+
+setInterval(async () => {
+
+    try {
+        await RideService.processExpiredRideRequests();
+    } catch (error) {
+        console.error('Ride timeout worker error:', error.message);
+    }
+
+}, 3000);
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
