@@ -1,6 +1,6 @@
 const Joi = require('joi');
 const CustomMessages = require('../../utilities/customMessages');
-
+const VEHICLE_TYPES = (process.env.VEHICLE_TYPES || 'bike,auto,car').split(',').map(type => type.trim().toLowerCase()).filter(Boolean);
 const bookSchema = (req, res, next) => {
     const schema = Joi.object({
         pickup_address: Joi.string().trim().max(255).required(),
@@ -15,7 +15,7 @@ const bookSchema = (req, res, next) => {
 
         vehicle_type: Joi.string()
             .trim()
-            .valid('bike', 'auto', 'car')
+            .valid(...VEHICLE_TYPES)
             .required(),
 
         payment_method: Joi.string()
@@ -67,7 +67,12 @@ const getNearbyDriverSchema = (req, res, next) => {
         radius_km: Joi.number()
             .positive()
             .max(50)
-            .default(5)
+            .default(5),
+
+        vehicle_type: Joi.string()
+            .trim()
+            .valid(...VEHICLE_TYPES)
+            .required(),
 
     });
 

@@ -2,14 +2,19 @@ const jwt = require('jsonwebtoken');
 const CustomMessages = require('../../utilities/customMessages');
 const RideModel = require('../models/ride.models');
 const h3 = require('h3-js');
+const admin = require('../../../server/firebase');
+
 const crypto = require('crypto');
 const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRATION || 5);
 const MAX_OTP_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS || 5);
-
+const VEHICLE_TYPES = (process.env.VEHICLE_TYPES || 'bike,auto,car')
+    .split(',')
+    .map(type => type.trim().toLowerCase())
+    .filter(Boolean);
 
 class RideService {
     
-    async bookRide (riderId, rideData){
+    async bookRide(riderId, rideData) {
         if (!riderId) {
             return {
                 status: 0,
@@ -18,28 +23,208 @@ class RideService {
             };
         }
 
-        const sameLocation =
-            Number(rideData.pickup_latitude) === Number(rideData.drop_latitude) &&
-            Number(rideData.pickup_longitude) === Number(rideData.drop_longitude);
+        // Fare and nearby drivers calculate again on booking
+        const nearbyResult = await this.getNearbyDriverByLatLong(rideData);
 
-        if (sameLocation) {
+        if (nearbyResult.status !== 1) {
+            return nearbyResult;
+        }
+
+        const {
+            fare,
+            nearby_drivers
+        } = nearbyResult.data;
+
+        // Create ride with fare
+        const rideResult = await RideModel.createRide(
+            riderId,
+            rideData,
+            fare
+        );
+
+        // Save eligible drivers in queue
+        if (nearby_drivers.length) {
+
+            await RideModel.createDriverQueue(
+                rideResult.ride_id,
+                nearby_drivers
+            );
+
+            // Send request to first available driver
+            await this.sendRideRequestToNextDriver(
+                rideResult.ride_id
+            );
+        }
+
+        const ride = await RideModel.getRideById(
+            rideResult.ride_id,
+            riderId
+        );
+
+        return {
+            status: 1,
+            message: nearby_drivers.length
+                ? 'Ride booked. Driver request initiated'
+                : 'Ride booked. No nearby drivers available',
+            data: {
+                ride,
+                fare,
+                total_drivers: nearby_drivers.length
+            },
+            httpStatus: 201
+        };
+    }
+    async sendFirebaseRideNotification(request) {
+        try {
+            const message = {
+                token: request.fcm_token,
+                notification: {
+                    title: 'New Ride Request',
+                    body: `Pickup: ${request.pickup_address}`
+                },
+                data: {
+                    type: 'RIDE_REQUEST',
+                    request_id: String(request.request_id),
+                    ride_id: String(request.ride_id),
+                    pickup_address: String(request.pickup_address),
+                    drop_address: String(request.drop_address),
+                    fare: String(request.estimated_fare || 0),
+                    expires_in: '30'
+                },
+
+                android: {
+                    priority: 'high',
+                    ttl: 30000,
+                    notification: {
+                        channelId: 'ride_requests',
+                        sound: 'ride_request'
+                    }
+                }
+            };
+
+            const response = await admin.messaging().send(message);
+
+            return {
+                success: true,
+                message_id: response
+            };
+
+        } catch (error) {
+
+            console.error('Firebase notification error:', error.message);
+
+            return {
+                success: false,
+                message: error.message
+            };
+        }
+    }
+    async sendRideRequestToNextDriver(rideId) {
+        while (true) {
+            const request = await RideModel.getNextDriverRequest(rideId);
+            if (!request) {
+                return {
+                    status: 0,
+                    message: 'No more available drivers'
+                };
+            }
+
+            const notification = await this.sendFirebaseRideNotification(
+                request
+            );
+
+            if (notification.success) {
+
+                return {
+                    status: 1,
+                    message: 'Ride request sent successfully',
+                    data: {
+                        request_id: request.request_id,
+                        driver_id: request.driver_id,
+                        expires_in: 30
+                    }
+                };
+            }
+
+            // If Firebase fails, try next driver
+            await RideModel.expireRideRequest(request.request_id);
+        }
+    }
+    async acceptRideRequest(requestId, driverId) {
+        if (!requestId || !driverId) {
             return {
                 status: 0,
-                message: 'Pickup and drop locations cannot be the same',
+                message: 'Request ID and driver ID are required',
+                httpStatus: 400
+            };
+        }
+        const result = await RideModel.acceptRideRequest( requestId, driverId);
+        if (!result.success) {
+            return {
+                status: 0,
+                message: result.message,
+                httpStatus: 400
+            };
+        }
+        return {
+            status: 1,
+            message: 'Ride accepted successfully',
+            data: {
+                ride_id: result.ride_id
+            },
+            httpStatus: 200
+        };
+    }
+    async rejectRideRequest(requestId, driverId) {
+
+        const rideId = await RideModel.getRideIdFromRequest(
+            requestId,
+            driverId
+        );
+
+        if (!rideId) {
+            return {
+                status: 0,
+                message: 'Ride request not found',
+                httpStatus: 404
+            };
+        }
+
+        const rejected = await RideModel.rejectRideRequest(
+            requestId,
+            driverId
+        );
+
+        if (!rejected) {
+            return {
+                status: 0,
+                message: 'Request expired or already processed',
                 httpStatus: 400
             };
         }
 
-        const rideResult = await RideModel.createRide(riderId, rideData);
-
-        const ride = await RideModel.getRideById( rideResult.ride_id, riderId);
+        const nextRequest = await this.sendRideRequestToNextDriver(rideId);
 
         return {
             status: 1,
-            message: 'Ride booked successfully',
-            data: ride,
-            httpStatus: 201
+            message: 'Ride request rejected successfully',
+            next_driver_request: nextRequest,
+            httpStatus: 200
         };
+    }
+    async processExpiredRideRequests() {
+        const rideIds = await RideModel.getExpiredRideIds();
+        for (const rideId of rideIds) {
+
+            try {
+                await this.sendRideRequestToNextDriver(rideId);
+            } catch (error) {
+                console.error(
+                    `Failed to process expired ride ${rideId}:`,
+                    error.message
+                );
+            }
+        }
     }
 
     // Get Nearby Drivers By Pickup And Drop Latitude Longitude
@@ -50,6 +235,8 @@ class RideService {
 
         const dropLat = Number(rideData.drop_latitude);
         const dropLng = Number(rideData.drop_longitude);
+
+        const vehicleType = String(rideData.vehicle_type || '').trim().toLowerCase();
 
         // Validate coordinates
         const isValidCoordinate = (lat, lng) => {
@@ -74,6 +261,16 @@ class RideService {
             };
         }
 
+        // Validate vehicle type
+        if (typeof vehicleType !== 'string' || !VEHICLE_TYPES.includes(vehicleType.trim().toLowerCase())) {
+            return {
+                status: 0,
+                message: 'Invalid vehicle type',
+                allowed_vehicle_types: VEHICLE_TYPES,
+                httpStatus: 400
+            };
+        }
+
         // Check same location
         if (
             pickupLat === dropLat &&
@@ -86,7 +283,7 @@ class RideService {
             };
         }
 
-        const radiusKm = Number(rideData.radius_km || 5);
+        const radiusKm = Number(rideData.radius_km ?? 5);
 
         if (
             !Number.isFinite(radiusKm) ||
@@ -123,9 +320,9 @@ class RideService {
             gridRadius
         );
 
-        // Get nearby drivers and settings from database
+        // Get vehicle-wise drivers and settings
         const [drivers, settings] = await Promise.all([
-            RideModel.getNearbyDrivers(h3Cells),
+            RideModel.getNearbyDrivers(h3Cells, vehicleType),
             RideModel.getSettings()
         ]);
 
@@ -160,20 +357,36 @@ class RideService {
             dropLng
         );
 
-        // Fare Settings
-        const baseFare = Number(settings.base_fare ?? 20);
+        // Vehicle-wise fare settings
+        const baseFare = Number(
+            settings[`${vehicleType}_base_fare`]
+        );
 
         const includedKm = Number(
-            settings.base_fare_max_km ?? 3
+            settings[`${vehicleType}_base_fare_max_km`]
         );
 
         const perKmCharge = Number(
-            settings.per_km_charge ?? 6
+            settings[`${vehicleType}_per_km_charge`]
         );
 
         const nightPercentage = Number(
-            settings.night_fare_percentage ?? 15
+            settings[`${vehicleType}_night_fare_percentage`]
         );
+
+        // Check settings availability
+        if (
+            !Number.isFinite(baseFare) ||
+            !Number.isFinite(includedKm) ||
+            !Number.isFinite(perKmCharge) ||
+            !Number.isFinite(nightPercentage)
+        ) {
+            return {
+                status: 0,
+                message: `Fare settings not configured for ${vehicleType}`,
+                httpStatus: 400
+            };
+        }
 
         const extraKm = Math.max(
             0,
@@ -202,7 +415,10 @@ class RideService {
         const totalFare = distanceFare + nightCharge;
 
         const fare = {
+            vehicle_type: vehicleType,
             base_fare: baseFare,
+            included_km: includedKm,
+            per_km_charge: perKmCharge,
             trip_distance_km: Number(
                 tripDistanceKm.toFixed(2)
             ),
@@ -217,12 +433,19 @@ class RideService {
             )
         };
 
-        // Nearby Drivers
+        // Calculate nearby driver distances
         const nearbyDrivers = drivers
             .map(driver => {
 
                 const driverLat = Number(driver.latitude);
                 const driverLng = Number(driver.longitude);
+
+                if (
+                    !Number.isFinite(driverLat) ||
+                    !Number.isFinite(driverLng)
+                ) {
+                    return null;
+                }
 
                 const distanceToPickup = getDistanceKm(
                     pickupLat,
@@ -240,6 +463,7 @@ class RideService {
                 };
             })
             .filter(driver =>
+                driver &&
                 driver.distance_to_pickup_km <= radiusKm
             )
             .sort((a, b) =>
@@ -251,10 +475,12 @@ class RideService {
             status: 1,
             message: 'Nearby drivers fetched successfully',
             data: {
+                vehicle_type: vehicleType,
                 trip_distance_km: Number(
                     tripDistanceKm.toFixed(2)
                 ),
                 fare,
+                total_drivers: nearbyDrivers.length,
                 nearby_drivers: nearbyDrivers
             },
             httpStatus: 200

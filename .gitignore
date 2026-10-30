@@ -132,3 +132,5 @@ dist
 
 2.xml
 system/1.*
+
+server/serviceAccountKey.json
