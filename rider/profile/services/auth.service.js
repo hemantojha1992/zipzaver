@@ -96,37 +96,23 @@ class AuthService {
      */
     async sendOtp(mobile, userType) {
         try {
-            // -----------------------------------
-            // 1. Validate mobile
-            // -----------------------------------
             if (!mobile) {
-                return {
-                    status: 0,
-                    message: 'Mobile number is required'
-                };
+                return {status: 0,message: 'Mobile number is required'};
             }
-
             mobile = mobile.toString().trim();
-
             if (!/^[6-9]\d{9}$/.test(mobile)) {
                 return {
                     status: 0,
                     message: 'Please enter a valid mobile number'
                 };
             }
-
-            // -----------------------------------
-            // 2. Validate user_type
-            // -----------------------------------
             if (userType === undefined || userType === null || userType === '') {
                 return {
                     status: 0,
                     message: 'User type is required'
                 };
             }
-
             userType = parseInt(userType, 10);
-
             if (isNaN(userType)) {
                 return {
                     status: 0,
@@ -134,88 +120,46 @@ class AuthService {
                 };
             }
 
-            // -----------------------------------
-            // 3. Find user
-            // -----------------------------------
             let users = await AuthModel.getUserByMobile(mobile);
             let user;
-
-            // -----------------------------------
-            // 4. User does not exist
-            // -----------------------------------
             if (!Array.isArray(users) || users.length === 0) {
-
                 // Create new user with dynamic user_type
                 const userResult = await AuthModel.createUser({
                     user_type: userType,
                     mobile: mobile,
-                    status: 1
+                    status:  Number(userType) === 3 ? 2 : 1,
+                    is_online: 0,
                 });
-
                 if (!userResult || !userResult.insertId) {
                     return {
                         status: 0,
                         message: 'Unable to create user'
                     };
                 }
-
                 // Get newly created user
                 const newUsers = await AuthModel.getUserById(
                     userResult.insertId
                 );
-
                 if (!Array.isArray(newUsers) || newUsers.length === 0) {
                     return {
                         status: 0,
                         message: 'Unable to create user'
                     };
                 }
-
                 user = newUsers[0];
 
             } else {
                 user = users[0];
             }
-            if (user.status === 0) {
-                return {
-                    status: 0,
-                    message: 'Your account is inactive'
-                };
-            }
-
-            if (user.status === 2) {
-                return {
-                    status: 0,
-                    message: 'Your account is blocked'
-                };
-            }
-
-            // -----------------------------------
-            // 6. Generate OTP
-            // -----------------------------------
+            
             const otp = this.generateOtp();
-
             const otpHash = this.hashOtp(otp);
-
-            // -----------------------------------
-            // 7. OTP expiry
-            // -----------------------------------
             const expiresAt = new Date(
                 Date.now() +
                 OTP_EXPIRY_MINUTES * 60 * 1000
             );
 
-            // -----------------------------------
-            // 8. Expire previous OTP
-            // -----------------------------------
-            await AuthModel.expirePreviousOtps(
-                mobile,
-                'LOGIN'
-            );
-
-            // -----------------------------------
-            // 9. Create new OTP
-            // -----------------------------------
+            await AuthModel.expirePreviousOtps(mobile,'LOGIN');
             await AuthModel.createOtp({
                 user_id: user.id,
                 mobile: mobile,
@@ -235,13 +179,6 @@ class AuthService {
                 otp
             );
             */
-
-            // Development only
-            console.log(`OTP for ${mobile}: ${otp}`);
-
-            // -----------------------------------
-            // 11. Response
-            // -----------------------------------
             return {
                 status: 1,
                 message: 'OTP sent successfully',
@@ -250,7 +187,6 @@ class AuthService {
             };
 
         } catch (error) {
-
             console.error('sendOtp error:', error);
             return {
                 status: 0,
@@ -300,21 +236,6 @@ class AuthService {
             }
 
             const user = users[0];
-
-            // Check user status
-            if (user.status === 0) {
-                return {
-                    status: 0,
-                    message: 'Your account is inactive'
-                };
-            }
-
-            if (user.status === 2) {
-                return {
-                    status: 0,
-                    message: 'Your account is blocked'
-                };
-            }
 
             // Get latest pending OTP
             const otpRecord = await AuthModel.getLatestPendingOtp(
