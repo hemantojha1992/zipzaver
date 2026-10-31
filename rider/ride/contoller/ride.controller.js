@@ -133,6 +133,32 @@ class RideController {
             });
         }
     }
+    async changeOnlineStatus(req, res) {
+        try {
+
+            const driverId = req.user.user_id;
+            const result = await RideService.changeOnlineStatus(
+                driverId,
+                req.body
+            );
+
+            return res.status(result.httpStatus || 200).json({
+                status: result.status,
+                message: result.message,
+                ...(result.data && { data: result.data })
+            });
+
+        } catch (error) {
+
+            console.error('Change Online Status Error:', error);
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        }
+    }
 
 }
 

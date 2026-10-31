@@ -257,7 +257,6 @@ class AuthModel {
     }
 
     async createUser(data) {
-
         const sql = `
             INSERT INTO users
             (
@@ -358,80 +357,6 @@ class AuthModel {
 
         return rows;
     }
-    
-    async getDriverProfile(userId) {
-
-        const [rows] = await dbPool.query(
-            `
-            SELECT
-                id,
-                user_id,
-                approval_status,
-                rejection_reason,
-                is_online,
-                is_available,
-                current_latitude,
-                current_longitude,
-                last_location_at
-            FROM driver_profiles
-            WHERE user_id = ?
-            LIMIT 1
-            `,
-            [userId]
-        );
-
-        return rows;
-    }
-
-    async createDriverProfile(data) {
-
-        const [result] = await dbPool.query(
-            `
-            INSERT INTO driver_profiles
-            (
-                user_id,
-                approval_status,
-                created_at,
-                updated_at
-            )
-            VALUES
-            (
-                ?,
-                ?,
-                NOW(),
-                NOW()
-            )
-            `,
-            [
-                data.user_id,
-                data.approval_status || 0
-            ]
-        );
-
-        return result;
-    }
-
-    async updateDriverProfile(userId,data) {
-
-        const [result] = await dbPool.query(
-            `
-            UPDATE driver_profiles
-            SET
-                approval_status = ?,
-                rejection_reason = ?,
-                updated_at = NOW()
-            WHERE user_id = ?
-            `,
-            [
-                data.approval_status,
-                data.rejection_reason || null,
-                userId
-            ]
-        );
-
-        return result;
-    }
-
     
     async updateUser(userId, data) {
         const allowedColumns = [

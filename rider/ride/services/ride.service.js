@@ -514,21 +514,138 @@ class RideService {
         }
 
         const h3Index = h3.latLngToCell(lat, lng, 9);
-        const updated = await RideModel.updateDriverLocation(driverId,lat,lng,h3Index);
-        if (!updated) {
+
+        const result = await RideModel.updateDriverLocation(
+            driverId,
+            lat,
+            lng,
+            h3Index
+        );
+
+        // Return model response directly if unsuccessful
+        if (result.status !== 1) {
             return {
-                status: 0,
-                message: 'Active driver not found',
-                httpStatus: 404
+                ...result,
+                httpStatus: result.httpStatus || 403
             };
         }
+
         return {
             status: 1,
-            message: 'Driver location updated successfully',
+            message: result.message,
             data: {
                 latitude: lat,
                 longitude: lng,
                 h3_index: h3Index
+            },
+            httpStatus: 200
+        };
+    }
+    async changeOnlineStatus(driverId, data) {
+
+        const isOnline = Number(data.is_online);
+
+        if (![0, 1].includes(isOnline)) {
+            return {
+                status: 0,
+                message: 'Invalid online status. Use 1 for online and 0 for offline.',
+                httpStatus: 400
+            };
+        }
+
+        let latitude = null;
+        let longitude = null;
+
+        if (isOnline === 1) {
+
+            latitude = Number(data.latitude);
+            longitude = Number(data.longitude);
+
+            if (
+                data.latitude === undefined ||
+                data.longitude === undefined ||
+                data.latitude === null ||
+                data.longitude === null ||
+                !Number.isFinite(latitude) ||
+                !Number.isFinite(longitude) ||
+                latitude < -90 ||
+                latitude > 90 ||
+                longitude < -180 ||
+                longitude > 180
+            ) {
+                return {
+                    status: 0,
+                    message: 'Valid latitude and longitude are required to go online.',
+                    httpStatus: 400
+                };
+            }
+
+            // Optional location fields validation
+            // for (const field of ['accuracy_m', 'speed_kmh', 'heading']) {
+            //     if (
+            //         data[field] !== undefined &&
+            //         data[field] !== null &&
+            //         (!Number.isFinite(Number(data[field])) ||
+            //             Number(data[field]) < 0)
+            //     ) {
+            //         return {
+            //             status: 0,
+            //             message: `Invalid ${field}.`,
+            //             httpStatus: 400
+            //         };
+            //     }
+            // }
+
+            // if (
+            //     data.heading !== undefined &&
+            //     data.heading !== null &&
+            //     Number(data.heading) > 360
+            // ) {
+            //     return {
+            //         status: 0,
+            //         message: 'Heading must be between 0 and 360.',
+            //         httpStatus: 400
+            //     };
+            // }
+        }
+        const driver = await RideModel.getDriverById(driverId);
+
+        if (!driver) {
+            return {
+                status: 0,
+                message: 'Driver not found.',
+                httpStatus: 404
+            };
+        }
+
+        if (Number(driver.status) !== 1) {
+            return {
+                status: 0,
+                message: 'Your account is not active. Please contact admin.',
+                httpStatus: 403
+            };
+        }
+
+        await RideModel.updateOnlineStatus(driverId, {
+            is_online: isOnline,
+            latitude,
+            longitude,
+            accuracy_m: data.accuracy_m ?? null,
+            speed_kmh: data.speed_kmh ?? null,
+            heading: data.heading ?? null
+        });
+
+        return {
+            status: 1,
+            message: isOnline === 1
+                ? 'Driver is now online successfully.'
+                : 'Driver is now offline successfully.',
+            data: {
+                is_online: isOnline,
+                ...(isOnline === 1 && {
+                    latitude,
+                    longitude
+                })
             },
             httpStatus: 200
         };
