@@ -481,51 +481,161 @@ class rideModel {
     
     }
 
-    static async updateDriverLocation( driverId,latitude,longitude,h3Index) {
+    static async updateDriverLocation(driverId, latitude, longitude, h3Index) {
         const connection = await dbPool.getConnection();
 
         try {
             await connection.beginTransaction();
 
-            // Verify that the authenticated user is an active driver.
+            // Check driver status
             const [drivers] = await connection.query(
-                `SELECT id
-                 FROM users 
-                 WHERE id = ? AND user_type = 3 AND status = 1
-                 LIMIT 1`,
+                `SELECT id, status
+                FROM users
+                WHERE id = ? AND user_type = 3
+                LIMIT 1`,
                 [driverId]
             );
 
             if (drivers.length === 0) {
                 await connection.rollback();
-                return false;
+
+                return {
+                    status: 0,
+                    message: 'Driver not found.'
+                };
             }
 
-            // Insert a new location history record.
+            const driverStatus = Number(drivers[0].status);
+
+            // Check driver account status
+            if (driverStatus !== 1) {
+                await connection.rollback();
+
+                const statusMessages = {
+                    0: 'Your account is inactive. Please contact the administration.',
+                    2: 'Your profile is pending approval. Please contact the administration.',
+                    3: 'Your account has been blocked. Please contact the administration.'
+                };
+                return {
+                    status: 0,
+                    message: statusMessages[driverStatus] || 'Your account status is invalid. Please contact the administration.'
+                };
+            }
+            // Insert location history
             await connection.query(
                 `INSERT INTO driver_locations
                     (driver_id, latitude, longitude, created_at)
-                 VALUES (?, ?, ?, NOW())`,
+                VALUES (?, ?, ?, NOW())`,
                 [driverId, latitude, longitude]
             );
 
-            // Update the driver's latest location.
+            // Update latest driver location
             await connection.query(
                 `UPDATE users
-                 SET 
+                SET
                     is_online = ?,
                     last_location_latitude = ?,
                     last_location_longitude = ?,
                     last_location_at = NOW(),
                     h3_index = ?
-                 WHERE id = ?`,
-                [1,latitude, longitude, h3Index, driverId]
+                WHERE id = ? AND user_type = 3`,
+                [1, latitude, longitude, h3Index, driverId]
             );
 
             await connection.commit();
+
+            return {
+                status: 1,
+                message: 'Driver location updated successfully.'
+            };
+
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async getDriverById(driverId) {
+        const [rows] = await dbPool.query(
+            `SELECT id, user_type, status, is_online
+             FROM users
+             WHERE id = ?
+             AND user_type = 3
+             AND deleted_at IS NULL
+             LIMIT 1`,
+            [driverId]
+        );
+
+        return rows[0] || null;
+    }
+
+    static async updateOnlineStatus(driverId, data) {
+        const connection = await dbPool.getConnection();
+        try {
+            await connection.beginTransaction();
+            // Update users table
+            if (data.is_online === 1) {
+
+                await connection.query(
+                    `UPDATE users
+                     SET is_online = 1,
+                         last_location_latitude = ?,
+                         last_location_longitude = ?,
+                         last_location_at = NOW(),
+                         updated_at = NOW()
+                     WHERE id = ?
+                     AND user_type = 3
+                     AND deleted_at IS NULL`,
+                    [
+                        data.latitude,
+                        data.longitude,
+                        driverId
+                    ]
+                );
+
+                // Insert current location into driver_locations
+                await connection.query(
+                    `INSERT INTO driver_locations
+                    (
+                        driver_id,
+                        order_id,
+                        latitude,
+                        longitude,
+                        
+                        recorded_at
+                    )
+                    VALUES (?, NULL, ?, ?, NOW(3))`,
+                    [
+                        driverId,
+                        data.latitude,
+                        data.longitude,
+                       
+                    ]
+                );
+
+            } else {
+
+                // Driver offline
+                await connection.query(
+                    `UPDATE users
+                     SET is_online = 0,
+                         updated_at = NOW()
+                     WHERE id = ?
+                     AND user_type = 3
+                     AND deleted_at IS NULL`,
+                    [driverId]
+                );
+            }
+
+            await connection.commit();
+
             return true;
 
         } catch (error) {
+
             await connection.rollback();
             throw error;
 
