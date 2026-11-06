@@ -84,37 +84,72 @@ const verifyOtpSchema = Joi.object({
 });
 
 
+
 const updateProfileSchema = Joi.object({
-    // Personal details - optional
+
+    // Personal details
     first_name: Joi.string().trim().min(2).max(150).optional(),
     last_name: Joi.string().trim().min(1).max(255).optional(),
-    email: Joi.string().trim().lowercase().email().max(150).allow('', null).optional(),
 
-    // Other documents - optional
+    email: Joi.string()
+        .trim()
+        .lowercase()
+        .email()
+        .max(150)
+        .allow('', null)
+        .optional(),
+
+    // Aadhaar
     aadhaar_number: Joi.string()
-    .trim()
-    .pattern(/^\d{12}$/)
-    .allow('', null)
-    .optional(),
-    aadhaar_front: Joi.any().optional(),
-    aadhaar_back: Joi.any().optional(),
-    pan: Joi.string().trim().max(255).allow('').optional(),
+        .trim()
+        .pattern(/^\d{12}$/)
+        .allow('', null)
+        .optional(),
 
-    // DL details
-    dl_number: Joi.string().trim().max(255).required(),
+    aadhar_front: Joi.any().optional(),
+    aadhar_back: Joi.any().optional(),
 
-    // Vehicle details - optional
-    vehicle_type: Joi.string().trim().max(50).optional(),
+    // PAN
+    pan: Joi.string()
+        .trim()
+        .uppercase()
+        .pattern(/^[A-Z]{5}[0-9]{4}[A-Z]$/)
+        .allow('', null)
+        .optional(),
+
+    pan_image: Joi.any().optional(),
+
+    // Driving License
+    dl_number: Joi.string()
+        .trim()
+        .max(255)
+        .allow('', null)
+        .optional(),
+
+    dl_front: Joi.any().optional(),
+    dl_back: Joi.any().optional(),
+
+    // Vehicle
+    vehicle_type: Joi.string()
+        .trim()
+        .lowercase()
+        .valid('bike', 'auto', 'car')
+        .optional(),
+
     vehicle_number: Joi.string().trim().max(20).optional(),
     brand: Joi.string().trim().max(100).optional(),
     model: Joi.string().trim().max(100).optional(),
-    color: Joi.string().trim().max(50).allow('').optional(),
-    fuel_type: Joi.string().trim().max(30).allow('').optional(),
+    color: Joi.string().trim().max(50).allow('', null).optional(),
+    fuel_type: Joi.string().trim().max(30).allow('', null).optional(),
 
-    // File fields are uploaded through Multer
-}).unknown(false);
+    vehicle_photo: Joi.any().optional(),
+    rc_front: Joi.any().optional(),
+    rc_back: Joi.any().optional(),
 
+    // Profile
+    profile_image: Joi.any().optional()
 
+});
 
 
 module.exports = {

@@ -25,11 +25,27 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(corsObj);
 
+// =====================================
+// STATIC UPLOADS - IMPORTANT
+// =====================================
+const uploadPath = path.join(__dirname, '../uploads');
+
+app.use(
+    '/api/uploads',
+    express.static(uploadPath)
+);
+
+//agent route
 const RiderTokenValidate = require('../rider/middleware/validateMiddleware')
 const RiderRoutes = require('../rider/routes');
-//agent route
 app.use('/rider',RiderTokenValidate, RiderRoutes);
+//agent route end
 
+//Admin route
+const AdminTokenValidate = require('../admin/middleware/validateMiddleware');
+const AdminRoutes = require('../admin/routes');
+app.use('/admin',AdminTokenValidate, AdminRoutes);
+//Admin route end
 
 app.get('/', (req, res) => {
   res.send({ status: SUCCESS_STATUS, data: 'from node' });
