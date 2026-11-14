@@ -1,5 +1,5 @@
 
-const CustomMessages = require("../../utilities/customMessages");
+
 let dbPool = require('../../database/db');
 const RideService = require('../services/ride.service');
 const batch = require('../../database/GroupUpdateInsert');
@@ -121,9 +121,11 @@ class RideController {
     }
 
     async updateLocation(req, res) {
+        let connection;
         try {
+            connection = await dbPool.getConnection();
             const { latitude, longitude } = req.body;
-            const result = await RideService.updateDriverLocation(req.user.user_id,latitude,longitude);
+            const result = await RideService.updateDriverLocation(connection,req.user.user_id,latitude,longitude);
             return res.status(result.httpStatus || 200).json(result);
         } catch (error) {
             return res.status(500).json({
@@ -131,6 +133,10 @@ class RideController {
                 message: 'Something went wrong. Please try again later.',
                 details: error.message
             });
+        } finally {
+            if (connection) {
+                connection.release();
+            }
         }
     }
     async changeOnlineStatus(req, res) {

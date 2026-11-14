@@ -411,16 +411,26 @@ class rideModel {
 
         if (!h3Cells.length) return [];
 
+        // Ignore old driver GPS positions. Configure this according to the
+        // location update interval used by the driver app.
+        const configuredLocationAge = Number(
+            process.env.DRIVER_LOCATION_MAX_AGE_MINUTES || 5
+        );
+        const maxLocationAgeMinutes = Number.isFinite(configuredLocationAge)
+            ? Math.max(1, Math.min(Math.floor(configuredLocationAge), 1440))
+            : 5;
+
         const placeholders = h3Cells.map(() => '?').join(',');
 
         const sql = `
-            SELECT
+            SELECT DISTINCT
                 u.id AS driver_id,
                 u.first_name,
                 u.last_name,
                 u.fcm_token,
                 u.last_location_latitude AS latitude,
                 u.last_location_longitude AS longitude,
+                u.last_location_at,
                 u.h3_index,
                 u.current_ride_id,
                 v.vehicle_type,
@@ -436,6 +446,8 @@ class rideModel {
             AND u.is_online = 1
             AND u.deleted_at IS NULL
             AND u.current_ride_id IS NULL
+            AND u.last_location_at IS NOT NULL
+            AND u.last_location_at >= DATE_SUB(NOW(), INTERVAL ${maxLocationAgeMinutes} MINUTE)
             AND u.fcm_token IS NOT NULL
             AND u.fcm_token != ''
             AND u.h3_index IN (${placeholders})
@@ -444,11 +456,19 @@ class rideModel {
             AND v.status = 1
             AND v.deleted_at IS NULL
         `;
+        // const [rows] = await dbPool.query(
+        //     sql,
+        //     [...h3Cells, vehicleType]
+        // );
+        const params = [...h3Cells, vehicleType];
 
-        const [rows] = await dbPool.query(
-            sql,
-            [...h3Cells, vehicleType]
-        );
+        // console.log(
+        //     'FINAL SQL:',
+        //     dbPool.format(sql, params)
+        // );
+
+        const [rows] = await dbPool.query(sql, params);
+        
 
         return rows;
     }
@@ -481,58 +501,62 @@ class rideModel {
     
     }
 
-    static async updateDriverLocation( driverId,latitude,longitude,h3Index) {
-        const connection = await dbPool.getConnection();
-
+    static async updateDriverLocation(connection, driverId, latitude, longitude, h3Index) {
         try {
             await connection.beginTransaction();
 
-            // Verify that the authenticated user is an active driver.
+            // Verify active driver
             const [drivers] = await connection.query(
                 `SELECT id
-                 FROM users 
-                 WHERE id = ?,
-                   AND user_type = 3
-                   AND status = 1
-                 LIMIT 1`,
+                FROM users
+                WHERE id = ?
+                AND user_type = 3
+                AND status = 1
+                LIMIT 1`,
                 [driverId]
             );
 
             if (drivers.length === 0) {
                 await connection.rollback();
-                return false;
+
+                return {
+                    status: 0,
+                    message: 'Active driver not found',
+                    httpStatus: 403
+                };
             }
 
-            // Insert a new location history record.
+            // Insert location history
             await connection.query(
                 `INSERT INTO driver_locations
                     (driver_id, latitude, longitude, created_at)
-                 VALUES (?, ?, ?, NOW())`,
+                VALUES (?, ?, ?, NOW())`,
                 [driverId, latitude, longitude]
             );
 
-            // Update the driver's latest location.
+            // Update latest driver location
             await connection.query(
                 `UPDATE users
-                 SET 
-                    is_online = ?
+                SET
+                    is_online = ?,
                     last_location_latitude = ?,
                     last_location_longitude = ?,
                     last_location_at = NOW(),
                     h3_index = ?
-                 WHERE id = ?`,
-                [1,latitude, longitude, h3Index, driverId]
+                WHERE id = ?`,
+                [1, latitude, longitude, h3Index, driverId]
             );
 
             await connection.commit();
-            return true;
+
+            return {
+                status: 1,
+                message: 'Driver location updated successfully'
+            };
 
         } catch (error) {
             await connection.rollback();
             throw error;
-
-        } finally {
-            connection.release();
         }
     }
 
