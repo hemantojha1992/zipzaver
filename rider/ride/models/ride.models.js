@@ -411,16 +411,26 @@ class rideModel {
 
         if (!h3Cells.length) return [];
 
+        // Ignore old driver GPS positions. Configure this according to the
+        // location update interval used by the driver app.
+        const configuredLocationAge = Number(
+            process.env.DRIVER_LOCATION_MAX_AGE_MINUTES || 5
+        );
+        const maxLocationAgeMinutes = Number.isFinite(configuredLocationAge)
+            ? Math.max(1, Math.min(Math.floor(configuredLocationAge), 1440))
+            : 5;
+
         const placeholders = h3Cells.map(() => '?').join(',');
 
         const sql = `
-            SELECT
+            SELECT DISTINCT
                 u.id AS driver_id,
                 u.first_name,
                 u.last_name,
                 u.fcm_token,
                 u.last_location_latitude AS latitude,
                 u.last_location_longitude AS longitude,
+                u.last_location_at,
                 u.h3_index,
                 u.current_ride_id,
                 v.vehicle_type,
@@ -436,6 +446,8 @@ class rideModel {
             AND u.is_online = 1
             AND u.deleted_at IS NULL
             AND u.current_ride_id IS NULL
+            AND u.last_location_at IS NOT NULL
+            AND u.last_location_at >= DATE_SUB(NOW(), INTERVAL ${maxLocationAgeMinutes} MINUTE)
             AND u.fcm_token IS NOT NULL
             AND u.fcm_token != ''
             AND u.h3_index IN (${placeholders})
@@ -444,11 +456,19 @@ class rideModel {
             AND v.status = 1
             AND v.deleted_at IS NULL
         `;
+        // const [rows] = await dbPool.query(
+        //     sql,
+        //     [...h3Cells, vehicleType]
+        // );
+        const params = [...h3Cells, vehicleType];
 
-        const [rows] = await dbPool.query(
-            sql,
-            [...h3Cells, vehicleType]
-        );
+        // console.log(
+        //     'FINAL SQL:',
+        //     dbPool.format(sql, params)
+        // );
+
+        const [rows] = await dbPool.query(sql, params);
+        
 
         return rows;
     }
@@ -481,17 +501,17 @@ class rideModel {
     
     }
 
-    static async updateDriverLocation(driverId, latitude, longitude, h3Index) {
-        const connection = await dbPool.getConnection();
-
+    static async updateDriverLocation(connection, driverId, latitude, longitude, h3Index) {
         try {
             await connection.beginTransaction();
 
-            // Check driver status
+            // Verify active driver
             const [drivers] = await connection.query(
-                `SELECT id, status
+                `SELECT id
                 FROM users
-                WHERE id = ? AND user_type = 3
+                WHERE id = ?
+                AND user_type = 3
+                AND status = 1
                 LIMIT 1`,
                 [driverId]
             );
@@ -501,26 +521,11 @@ class rideModel {
 
                 return {
                     status: 0,
-                    message: 'Driver not found.'
+                    message: 'Active driver not found',
+                    httpStatus: 403
                 };
             }
 
-            const driverStatus = Number(drivers[0].status);
-
-            // Check driver account status
-            if (driverStatus !== 1) {
-                await connection.rollback();
-
-                const statusMessages = {
-                    0: 'Your account is inactive. Please contact the administration.',
-                    2: 'Your profile is pending approval. Please contact the administration.',
-                    3: 'Your account has been blocked. Please contact the administration.'
-                };
-                return {
-                    status: 0,
-                    message: statusMessages[driverStatus] || 'Your account status is invalid. Please contact the administration.'
-                };
-            }
             // Insert location history
             await connection.query(
                 `INSERT INTO driver_locations
@@ -538,7 +543,7 @@ class rideModel {
                     last_location_longitude = ?,
                     last_location_at = NOW(),
                     h3_index = ?
-                WHERE id = ? AND user_type = 3`,
+                WHERE id = ?`,
                 [1, latitude, longitude, h3Index, driverId]
             );
 
@@ -546,101 +551,12 @@ class rideModel {
 
             return {
                 status: 1,
-                message: 'Driver location updated successfully.'
+                message: 'Driver location updated successfully'
             };
 
         } catch (error) {
             await connection.rollback();
             throw error;
-
-        } finally {
-            connection.release();
-        }
-    }
-
-    static async getDriverById(driverId) {
-        const [rows] = await dbPool.query(
-            `SELECT id, user_type, status, is_online
-             FROM users
-             WHERE id = ?
-             AND user_type = 3
-             AND deleted_at IS NULL
-             LIMIT 1`,
-            [driverId]
-        );
-
-        return rows[0] || null;
-    }
-
-    static async updateOnlineStatus(driverId, data) {
-        const connection = await dbPool.getConnection();
-        try {
-            await connection.beginTransaction();
-            // Update users table
-            if (data.is_online === 1) {
-
-                await connection.query(
-                    `UPDATE users
-                     SET is_online = 1,
-                         last_location_latitude = ?,
-                         last_location_longitude = ?,
-                         last_location_at = NOW(),
-                         updated_at = NOW()
-                     WHERE id = ?
-                     AND user_type = 3
-                     AND deleted_at IS NULL`,
-                    [
-                        data.latitude,
-                        data.longitude,
-                        driverId
-                    ]
-                );
-
-                // Insert current location into driver_locations
-                await connection.query(
-                    `INSERT INTO driver_locations
-                    (
-                        driver_id,
-                        order_id,
-                        latitude,
-                        longitude,
-                        
-                        recorded_at
-                    )
-                    VALUES (?, NULL, ?, ?, NOW(3))`,
-                    [
-                        driverId,
-                        data.latitude,
-                        data.longitude,
-                       
-                    ]
-                );
-
-            } else {
-
-                // Driver offline
-                await connection.query(
-                    `UPDATE users
-                     SET is_online = 0,
-                         updated_at = NOW()
-                     WHERE id = ?
-                     AND user_type = 3
-                     AND deleted_at IS NULL`,
-                    [driverId]
-                );
-            }
-
-            await connection.commit();
-
-            return true;
-
-        } catch (error) {
-
-            await connection.rollback();
-            throw error;
-
-        } finally {
-            connection.release();
         }
     }
 

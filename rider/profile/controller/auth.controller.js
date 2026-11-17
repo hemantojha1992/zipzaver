@@ -1,21 +1,10 @@
-const AuthModel = require('../models/auth.models');
 const jwt = require('jsonwebtoken');
 const CustomMessages = require('../../utilities/customMessages');
 const AuthService = require('../services/auth.service');
-
 const JWT_secret_key = process.env.JWT_SECRET;
+const dbPool = require('../../database/db');
 
 class AuthController {
-
-    async login(req, res) {
-        try {
-            let searchData = req.body;
-            const result = await AuthService.login(searchData);
-            res.send(result);
-        } catch (err) {
-            res.status(500).json({ success: 0, message: err.message, details: err });
-        }
-    }
 
     static async getUser(req, res) {
         let email = req.body.email;
@@ -105,9 +94,11 @@ class AuthController {
     }
 
     async sendOtp(req, res) {
+        let connection;
         try {
+            connection = await dbPool.getConnection();
             const { mobile ,user_type} = req.body;
-            const result = await AuthService.sendOtp(mobile, user_type);
+            const result = await AuthService.sendOtp(connection, mobile, user_type);
             return res.status(result.status === 1 ? 200 : 400).json(result);
 
         } catch (error) {
@@ -116,14 +107,18 @@ class AuthController {
                 message: 'Something went wrong. Please try again later.',
                 details: error.message
             });
+        }finally {
+            connection.release();
         }
     }
 
     async verifyOtp(req, res) {
+        let connection;
         try {
+            connection = await dbPool.getConnection();
             const { mobile, otp, device_id, device_type, fcm_token } = req.body; 
             const device = { device_id, device_type, fcm_token };
-            const result = await AuthService.verifyOtp(mobile, otp,device);
+            const result = await AuthService.verifyOtp(connection,mobile, otp,device);
             return res.status(result.status === 1 ? 200 : 400).json(result);
         } catch (error) {
             return res.status(500).json({
@@ -131,14 +126,18 @@ class AuthController {
                 message: 'Something went wrong. Please try again later.',
                 details: error.message
             });
+        }finally {
+            connection.release();
         }
     }
 
     async resendOtp(req, res) {
+        let connection;
         try {
+            connection = await dbPool.getConnection();
             const { mobile } = req.body;
 
-            const result = await AuthService.resendOtp(mobile);
+            const result = await AuthService.resendOtp(connection, mobile);
 
             return res.status(result.status === 1 ? 200 : 400).json(result);
 
@@ -148,9 +147,12 @@ class AuthController {
                 message: 'Something went wrong. Please try again later.',
                 details: error.message
             });
+        }finally {
+            connection.release();
         }
     }
-    async updateProfile(req, res) {
+    
+    async updateProfile_bkp(req, res) {
         try {
             if (!req.user || !req.user.user_id) {
                 return res.status(401).json({
@@ -161,6 +163,7 @@ class AuthController {
 
             const userId = req.user.user_id;
             const userType = req.user.user_type;
+
             if (Number(userType) !== 3) {
                 return res.status(403).json({
                     status: 0,
@@ -172,7 +175,6 @@ class AuthController {
 
             const getFile = (field) => files[field]?.[0] || null;
 
-            // Required DL and RC documents
             const dlFront = getFile('dl_front');
             const dlBack = getFile('dl_back');
             const rcFront = getFile('rc_front');
@@ -191,7 +193,6 @@ class AuthController {
                 });
             }
 
-            // All remaining fields are optional
             const {
                 first_name,
                 last_name,
@@ -222,7 +223,6 @@ class AuthController {
                 fuel_type
             };
 
-            // Remove undefined values so omitted fields remain unchanged
             Object.keys(profileData).forEach((key) => {
                 if (profileData[key] === undefined) {
                     delete profileData[key];
@@ -249,9 +249,7 @@ class AuthController {
             );
 
             return res.status(
-                result.status === 1
-                    ? 200
-                    : result.httpStatus || 400
+                result.status === 1 ? 200 : result.httpStatus || 400
             ).json(result);
 
         } catch (error) {
@@ -264,21 +262,118 @@ class AuthController {
             });
         }
     }
+    async updateProfile(req, res) {
+        let connection;
+        try {
+            connection = await dbPool.getConnection();
+            if (!req.user || !req.user.user_id) {
+                return res.status(401).json({
+                    status: 0,
+                    message: 'Unauthorized. Please login again.'
+                });
+            }
+
+            const userId = req.user.user_id;
+            const userType = req.user.user_type;
+
+            if (Number(userType) !== 3) {
+                return res.status(403).json({
+                    status: 0,
+                    message: 'Only drivers can update this profile.'
+                });
+            }
+
+            const files = req.files || {};
+            const getFile = (field) => files[field]?.[0] || null;
+
+            const {
+                first_name,
+                last_name,
+                email,
+                aadhaar_number,
+                dl_number,
+                pan,
+                vehicle_type,
+                vehicle_number,
+                brand,
+                model,
+                color,
+                fuel_type
+            } = req.body;
+
+            const profileData = {
+                first_name,
+                last_name,
+                email,
+                aadhaar_number,
+                dl_number,
+                pan,
+                vehicle_type,
+                vehicle_number,
+                brand,
+                model,
+                color,
+                fuel_type
+            };
+
+            Object.keys(profileData).forEach((key) => {
+                if (profileData[key] === undefined) {
+                    delete profileData[key];
+                }
+            });
+
+            const uploadedFiles = {
+                profileImage: getFile('profile_image'),
+                aadhaarFront: getFile('aadhar_front'),
+                aadhaarBack: getFile('aadhar_back'),
+                dlFront: getFile('dl_front'),
+                dlBack: getFile('dl_back'),
+                panImage: getFile('pan_image'),
+                vehiclePhoto: getFile('vehicle_photo'),
+                rcFront: getFile('rc_front'),
+                rcBack: getFile('rc_back')
+            };
+
+            const result = await AuthService.updateProfile(
+                connection,
+                userId,
+                userType,
+                profileData,
+                uploadedFiles
+            );
+
+            return res.status(
+                result.status === 1 ? 200 : result.httpStatus || 400
+            ).json(result);
+
+        } catch (error) {
+            console.error('Update Profile Error:', error);
+
+            return res.status(500).json({
+                status: 0,
+                message: 'Something went wrong. Please try again later.',
+                details: error.message
+            });
+        } finally {
+            connection.release();
+        }
+    }
+
 
     async getSettings(req, res) {
+        let connection;
         try {
-            const result = await AuthService.getSettings();
-
-            return res
-                .status(result.status === 1 ? 200 : 400)
-                .json(result);
-
+            const connection = await dbPool.getConnection();
+            const result = await AuthService.getSettings(connection);
+            return res.status(result.status === 1 ? 200 : 400).json(result);
         } catch (error) {
             return res.status(500).json({
                 status: 0,
                 message: 'Something went wrong. Please try again later.',
                 details: error.message
             });
+        } finally {
+            connection.release();
         }
     }
 
